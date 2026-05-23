@@ -1,6 +1,6 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY WORKING)
-// Fixed: Console input, text display, authentication
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (CONSOLE FIXED)
+// Fixed: Console stays open on error, proper error messages
 // Compile: cl /EHsc /std:c++17 /MT voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
@@ -20,9 +20,6 @@
 #pragma comment(lib, "shell32.lib")
 
 #define CHEAT_VERSION "1.0"
-#define CHEAT_COLOR_R 156
-#define CHEAT_COLOR_G 39
-#define CHEAT_COLOR_B 176
 
 // ==================== KEYAUTH ====================
 #define KEYAUTH_NAME "VoidWare"
@@ -98,7 +95,7 @@ int g_triggerDelay = 20;
 
 int g_fps = 0;
 
-// ==================== EXPLICIT READ FUNCTIONS ====================
+// ==================== READ FUNCTIONS ====================
 uintptr_t ReadPtr(uintptr_t address) {
     uintptr_t value = 0;
     if (g_hProcess && address) {
@@ -186,20 +183,31 @@ std::string GenerateHWID() {
 std::string HTTPPost(const std::string& host, const std::string& path, const std::string& data) {
     std::string result;
     HINTERNET hSession = WinHttpOpen(L"VoidWare", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
-    if (!hSession) return result;
+    if (!hSession) return "ERROR: WinHttpOpen failed";
     
     std::wstring whost(host.begin(), host.end());
     HINTERNET hConnect = WinHttpConnect(hSession, whost.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return result; }
+    if (!hConnect) { WinHttpCloseHandle(hSession); return "ERROR: WinHttpConnect failed"; }
     
     std::wstring wpath(path.begin(), path.end());
     HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", wpath.c_str(), NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
-    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return result; }
+    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return "ERROR: WinHttpOpenRequest failed"; }
     
     LPCWSTR headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
     DWORD dataLen = (DWORD)data.length();
-    WinHttpSendRequest(hRequest, headers, wcslen(headers), (LPVOID)data.c_str(), dataLen, dataLen, 0);
-    WinHttpReceiveResponse(hRequest, NULL);
+    if (!WinHttpSendRequest(hRequest, headers, wcslen(headers), (LPVOID)data.c_str(), dataLen, dataLen, 0)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return "ERROR: WinHttpSendRequest failed";
+    }
+    
+    if (!WinHttpReceiveResponse(hRequest, NULL)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return "ERROR: WinHttpReceiveResponse failed";
+    }
     
     DWORD bytesRead = 0;
     char buffer[4096];
@@ -221,6 +229,12 @@ bool KeyAuthInit() {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_INIT, postData);
+    
+    if (response.find("ERROR") != std::string::npos) {
+        printf("[DEBUG] Init error: %s\n", response.c_str());
+        return false;
+    }
+    
     return response.find("\"success\":true") != std::string::npos;
 }
 
@@ -231,29 +245,27 @@ bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_LICENSE, postData);
+    
+    printf("[DEBUG] Server response: %s\n", response.c_str());
+    
+    if (response.find("ERROR") != std::string::npos) {
+        return false;
+    }
+    
     return response.find("\"success\":true") != std::string::npos;
 }
 
-// ==================== AUTHENTICATION - FIXED CONSOLE INPUT ====================
+// ==================== AUTHENTICATION ====================
 bool ShowAuthDialog() {
-    // Allocate console and set codepage for proper display
     AllocConsole();
-    SetConsoleCP(CP_UTF8);
-    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleTitleA("VoidWare - Authentication");
     
-    // Get console handle and set title
+    // Set console to foreground
     HWND hConsoleWnd = GetConsoleWindow();
-    SetConsoleTitleW(L"VoidWare - Authentication");
-    
-    // Set console window to foreground
     ShowWindow(hConsoleWnd, SW_SHOW);
     SetForegroundWindow(hConsoleWnd);
     BringWindowToTop(hConsoleWnd);
     
-    // Flush any pending input
-    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
-    
-    // Clear console and display banner
     system("cls");
     
     printf("============================================\n");
@@ -261,7 +273,7 @@ bool ShowAuthDialog() {
     printf("============================================\n\n");
     
     std::string hwid = GenerateHWID();
-    printf("[HWID] %s\n\n", hwid.c_str());
+    printf("HWID: %s\n\n", hwid.c_str());
     
     printf("[1] Login with License Key\n");
     printf("[2] Exit\n\n");
@@ -272,7 +284,7 @@ bool ShowAuthDialog() {
     
     if (choice != 1) {
         printf("\nExiting...\n");
-        Sleep(2000);
+        system("pause");
         FreeConsole();
         return false;
     }
@@ -281,28 +293,31 @@ bool ShowAuthDialog() {
     char key[256];
     scanf_s("%s", key, (unsigned int)sizeof(key));
     
-    printf("\n[*] Verifying license key...\n");
+    printf("\n[*] Connecting to auth server...\n");
     
     if (!KeyAuthInit()) { 
-        printf("[ERROR] Cannot connect to auth server\n"); 
-        Sleep(2000); 
+        printf("[ERROR] Cannot connect to authentication server.\n");
+        printf("[ERROR] Please check your internet connection.\n");
+        system("pause");
         FreeConsole();
         return false; 
     }
     
+    printf("[*] Verifying license key...\n");
+    
     if (KeyAuthLicense(key, hwid)) {
         printf("[SUCCESS] License verified!\n");
     } else {
-        printf("[ERROR] Invalid license key\n");
-        Sleep(2000);
+        printf("[ERROR] Invalid license key or HWID mismatch.\n");
+        printf("[ERROR] Make sure you entered the correct key.\n");
+        system("pause");
         FreeConsole();
         return false;
     }
     
-    printf("\n[*] Starting VoidWare...\n");
-    Sleep(1000);
+    printf("\n[*] Starting VoidWare in 2 seconds...\n");
+    Sleep(2000);
     
-    // Hide console but keep it alive
     ShowWindow(hConsoleWnd, SW_HIDE);
     
     return true;
@@ -621,7 +636,7 @@ void DrawFOVCircle(HDC hdc) {
     POINT cursor;
     GetCursorPos(&cursor);
     ScreenToClient(g_hGameWnd, &cursor);
-    HPEN pen = CreatePen(PS_SOLID, 1, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(156, 39, 176));
     HPEN oldPen = (HPEN)SelectObject(hdc, pen);
     HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
     Ellipse(hdc, cursor.x - g_fovCircleRadius, cursor.y - g_fovCircleRadius,
@@ -639,7 +654,7 @@ void DrawWatermark(HDC hdc) {
     SetTextColor(hdc, RGB(0, 0, 0));
     SetBkMode(hdc, TRANSPARENT);
     TextOutA(hdc, 11, 11, watermark, (int)strlen(watermark));
-    SetTextColor(hdc, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+    SetTextColor(hdc, RGB(156, 39, 176));
     TextOutA(hdc, 10, 10, watermark, (int)strlen(watermark));
 }
 
@@ -647,15 +662,15 @@ void DrawMenu(HDC hdc) {
     if (!g_menuOpen) return;
     
     DrawFilledRect(hdc, 50, 50, 350, 400, RGB(30, 30, 40));
-    DrawRect(hdc, 50, 50, 350, 400, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+    DrawRect(hdc, 50, 50, 350, 400, RGB(156, 39, 176));
     
     char title[64];
     sprintf_s(title, "VOIDWARE v%s - INS TOGGLE", CHEAT_VERSION);
-    DrawText(hdc, 70, 60, title, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+    DrawText(hdc, 70, 60, title, RGB(156, 39, 176));
     
     const char* tabs[] = { "AIM", "VISUAL", "RAGE" };
     for (int i = 0; i < 3; i++) {
-        COLORREF tabColor = (g_currentTab == i) ? RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B) : RGB(60, 60, 80);
+        COLORREF tabColor = (g_currentTab == i) ? RGB(156, 39, 176) : RGB(60, 60, 80);
         DrawFilledRect(hdc, 70 + i * 100, 90, 90, 25, tabColor);
         DrawText(hdc, 105 + i * 100, 95, tabs[i], RGB(255, 255, 255));
     }
@@ -663,7 +678,7 @@ void DrawMenu(HDC hdc) {
     int y = 130;
     if (g_currentTab == 0) {
         DrawText(hdc, 70, y, "[F1] Cycle Aim Point", RGB(200, 200, 200));
-        DrawText(hdc, 70, y + 25, ("Current: " + std::string(g_aimPointNames[g_aimPoint])).c_str(), RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+        DrawText(hdc, 70, y + 25, ("Current: " + std::string(g_aimPointNames[g_aimPoint])).c_str(), RGB(156, 39, 176));
         DrawText(hdc, 70, y + 55, ("[F2] Aim FOV: " + std::to_string(g_aimFov)).c_str(), RGB(200, 200, 200));
         DrawText(hdc, 70, y + 80, ("[F3] Smoothness: " + std::to_string(g_aimSmoothness)).c_str(), RGB(200, 200, 200));
         DrawText(hdc, 70, y + 105, "[F4] Toggle Silent Aim", RGB(200, 200, 200));
@@ -846,13 +861,23 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     
     DWORD pid = GetProcessId(L"cs2.exe");
     if (!pid) { LaunchCS2(); Sleep(5000); pid = GetProcessId(L"cs2.exe"); }
-    if (!pid) { MessageBoxA(NULL, "CS2 not found. Launch the game.", "VoidWare Error", MB_OK); return 0; }
+    if (!pid) { 
+        MessageBoxA(NULL, "CS2 not found. Launch the game and try again.", "VoidWare Error", MB_OK); 
+        return 0; 
+    }
     
     g_hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-    if (!g_hProcess) { MessageBoxA(NULL, "OpenProcess failed. Run as Administrator.", "VoidWare Error", MB_OK); return 0; }
+    if (!g_hProcess) { 
+        MessageBoxA(NULL, "OpenProcess failed. Run as Administrator.", "VoidWare Error", MB_OK); 
+        return 0; 
+    }
     
     g_clientBase = GetModuleBase(pid, L"client.dll");
-    if (!g_clientBase) { MessageBoxA(NULL, "client.dll not found. CS2 may have updated.", "VoidWare Error", MB_OK); CloseHandle(g_hProcess); return 0; }
+    if (!g_clientBase) { 
+        MessageBoxA(NULL, "client.dll not found. CS2 may have updated.", "VoidWare Error", MB_OK); 
+        CloseHandle(g_hProcess);
+        return 0; 
+    }
     
     std::thread cheatThread(CheatLoop);
     cheatThread.detach();
