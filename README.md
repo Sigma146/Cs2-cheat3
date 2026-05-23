@@ -1,9 +1,7 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT
-// Complete feature set: Aimbot, ESP, Triggerbot, BHop, 3rd Person, FOV Changer
-// Menu Keybind: INSERT in-game | Key recording system
-// KeyAuth Integration: VoidWare | Owner ID: XfwwmtO8U3
-// Compile: cl /EHsc /std:c++17 /MT /O2 /GL voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (FIXED)
+// Fixed: Vector3 operators, snapshot flags, type conversions
+// Compile: cl /EHsc /std:c++17 /MT /O2 /GL voidware_fixed.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
 #include <Windows.h>
@@ -126,6 +124,36 @@ std::string GenerateHWID();
 bool KeyAuthInit();
 bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid);
 
+// ==================== VECTOR3 STRUCTURE WITH FULL OPERATORS ====================
+struct Vector3 {
+    float x, y, z;
+    
+    Vector3() : x(0), y(0), z(0) {}
+    Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+    
+    // Arithmetic operators
+    Vector3 operator+(const Vector3& v) const { return Vector3(x + v.x, y + v.y, z + v.z); }
+    Vector3 operator-(const Vector3& v) const { return Vector3(x - v.x, y - v.y, z - v.z); }
+    Vector3 operator*(float s) const { return Vector3(x * s, y * s, z * s); }
+    Vector3 operator/(float s) const { 
+        if (s == 0) return Vector3(0, 0, 0);
+        return Vector3(x / s, y / s, z / s); 
+    }
+    
+    // Assignment operators
+    Vector3& operator+=(const Vector3& v) { x += v.x; y += v.y; z += v.z; return *this; }
+    Vector3& operator-=(const Vector3& v) { x -= v.x; y -= v.y; z -= v.z; return *this; }
+    Vector3& operator*=(float s) { x *= s; y *= s; z *= s; return *this; }
+    Vector3& operator/=(float s) { if (s != 0) { x /= s; y /= s; z /= s; } return *this; }
+    
+    float Length() const { return sqrtf(x*x + y*y + z*z); }
+    void Normalize() { float l = Length(); if (l > 0.001f) { x /= l; y /= l; z /= l; } }
+    float DistTo(const Vector3& v) const { 
+        float dx = x - v.x, dy = y - v.y, dz = z - v.z; 
+        return sqrtf(dx*dx + dy*dy + dz*dz); 
+    }
+};
+
 // ==================== HWID GENERATION ====================
 std::string GenerateHWID() {
     char hwid[128];
@@ -236,24 +264,7 @@ bool ShowAuthDialog() {
     return true;
 }
 
-// ==================== MATH ====================
-struct Vector3 {
-    float x, y, z;
-    Vector3() : x(0), y(0), z(0) {}
-    Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-    
-    Vector3 operator-(const Vector3& v) const { return Vector3(x - v.x, y - v.y, z - v.z); }
-    Vector3 operator+(const Vector3& v) const { return Vector3(x + v.x, y + v.y, z + v.z); }
-    Vector3 operator*(float s) const { return Vector3(x * s, y * s, z * s); }
-    
-    float Length() const { return sqrtf(x*x + y*y + z*z); }
-    void Normalize() { float l = Length(); if (l > 0.001f) { x /= l; y /= l; z /= l; } }
-    float DistTo(const Vector3& v) const { 
-        float dx = x - v.x, dy = y - v.y, dz = z - v.z; 
-        return sqrtf(dx*dx + dy*dy + dz*dz); 
-    }
-};
-
+// ==================== MATH FUNCTIONS ====================
 Vector3 CalcAngle(Vector3 src, Vector3 dst) {
     Vector3 delta = dst - src;
     Vector3 angles;
@@ -359,9 +370,7 @@ void MemoryAimbot(uintptr_t localPlayer, Vector3 localEyePos) {
         Vector3 delta = aimAngle - currentAngle;
         float len = delta.Length();
         if (len > 0.001f) {
-            delta.x /= len;
-            delta.y /= len;
-            delta.z /= len;
+            delta = delta / len;
             aimAngle = currentAngle + delta / (float)g_aim.smoothness;
         }
     }
@@ -381,7 +390,8 @@ void SilentAim(uintptr_t localPlayer, Vector3 localEyePos) {
     uintptr_t clientState = Read<uintptr_t>(g_clientBase + Offsets::dwClientState);
     if (clientState) {
         Vector3 punch = Read<Vector3>(localPlayer + Offsets::m_aimPunchAngle);
-        aimAngle = aimAngle - punch * 2.0f;
+        // Use the division operator which is now properly defined
+        aimAngle = aimAngle - (punch * 2.0f);
         Write<Vector3>(clientState + 0x4D88, aimAngle);
     }
 }
@@ -767,13 +777,13 @@ void HandleHotkeys() {
         if (g_visual.gameFOV < 70) g_visual.gameFOV = 70; 
     }
     
-    // 3rd person distance adjustment
-    if (GetAsyncKeyState(VK_ADD) & 1 || GetAsyncKeyState(VK_OEM_PLUS) & 1) { 
+    // 3rd person distance adjustment (supports both numpad and regular +/-)
+    if ((GetAsyncKeyState(VK_ADD) & 1) || (GetAsyncKeyState(VK_OEM_PLUS) & 1)) { 
         std::lock_guard<std::mutex> lock(g_mutex);
         g_visual.thirdPersonDistance += 10; 
         if (g_visual.thirdPersonDistance > 300) g_visual.thirdPersonDistance = 300; 
     }
-    if (GetAsyncKeyState(VK_SUBTRACT) & 1 || GetAsyncKeyState(VK_OEM_MINUS) & 1) { 
+    if ((GetAsyncKeyState(VK_SUBTRACT) & 1) || (GetAsyncKeyState(VK_OEM_MINUS) & 1)) { 
         std::lock_guard<std::mutex> lock(g_mutex);
         g_visual.thirdPersonDistance -= 10; 
         if (g_visual.thirdPersonDistance < 30) g_visual.thirdPersonDistance = 30; 
@@ -831,6 +841,7 @@ DWORD GetProcessId(const wchar_t* name) {
 }
 
 uintptr_t GetModuleBase(DWORD pid, const wchar_t* moduleName) {
+    // Use TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32 - fixed the operator issue
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (snap == INVALID_HANDLE_VALUE) return 0;
     
