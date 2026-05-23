@@ -1,6 +1,6 @@
 // ============================================================
 // VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY WORKING)
-// NO TEMPLATE ISSUES - VECTOR3 READ/WRITE FIXED
+// Fixed: Console input, text display, authentication
 // Compile: cl /EHsc /std:c++17 /MT voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
@@ -13,6 +13,7 @@
 #include <intrin.h>
 #include <winhttp.h>
 #include <shellapi.h>
+#include <iostream>
 
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -54,7 +55,7 @@ namespace Offsets {
     constexpr uintptr_t m_aimPunchAngle = 0x2E0;
 }
 
-// ==================== SIMPLE VECTOR3 - NO TEMPLATE ISSUES ====================
+// ==================== SIMPLE VECTOR3 ====================
 struct Vector3 {
     float x, y, z;
 };
@@ -97,7 +98,7 @@ int g_triggerDelay = 20;
 
 int g_fps = 0;
 
-// ==================== EXPLICIT READ FUNCTIONS (NO TEMPLATE ISSUES) ====================
+// ==================== EXPLICIT READ FUNCTIONS ====================
 uintptr_t ReadPtr(uintptr_t address) {
     uintptr_t value = 0;
     if (g_hProcess && address) {
@@ -168,7 +169,7 @@ void WriteVec3(uintptr_t address, Vector3 value) {
     }
 }
 
-// ==================== KEYAUTH ====================
+// ==================== KEYAUTH HTTP ====================
 std::string GenerateHWID() {
     char hwid[128];
     DWORD volumeSerial = 0;
@@ -233,47 +234,77 @@ bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
     return response.find("\"success\":true") != std::string::npos;
 }
 
+// ==================== AUTHENTICATION - FIXED CONSOLE INPUT ====================
 bool ShowAuthDialog() {
+    // Allocate console and set codepage for proper display
     AllocConsole();
-    FILE* f;
-    freopen_s(&f, "CONOUT$", "w", stdout);
-    SetConsoleTitle(L"VoidWare - Authentication");
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
     
-    printf("\n");
-    printf("  ╔══════════════════════════════════════════════════════╗\n");
-    printf("  ║              VOIDWARE v%s - CS2 CHEAT               ║\n", CHEAT_VERSION);
-    printf("  ╚══════════════════════════════════════════════════════╝\n\n");
+    // Get console handle and set title
+    HWND hConsoleWnd = GetConsoleWindow();
+    SetConsoleTitleW(L"VoidWare - Authentication");
+    
+    // Set console window to foreground
+    ShowWindow(hConsoleWnd, SW_SHOW);
+    SetForegroundWindow(hConsoleWnd);
+    BringWindowToTop(hConsoleWnd);
+    
+    // Flush any pending input
+    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+    
+    // Clear console and display banner
+    system("cls");
+    
+    printf("============================================\n");
+    printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
+    printf("============================================\n\n");
     
     std::string hwid = GenerateHWID();
-    printf("  HWID: %s\n\n", hwid.c_str());
-    printf("  Enter License Key: ");
+    printf("[HWID] %s\n\n", hwid.c_str());
     
+    printf("[1] Login with License Key\n");
+    printf("[2] Exit\n\n");
+    printf("Select option: ");
+    
+    int choice;
+    scanf_s("%d", &choice);
+    
+    if (choice != 1) {
+        printf("\nExiting...\n");
+        Sleep(2000);
+        FreeConsole();
+        return false;
+    }
+    
+    printf("\nEnter License Key: ");
     char key[256];
     scanf_s("%s", key, (unsigned int)sizeof(key));
-    printf("\n  [*] Verifying license key...\n");
+    
+    printf("\n[*] Verifying license key...\n");
     
     if (!KeyAuthInit()) { 
-        printf("  [ERROR] Cannot connect to auth server\n"); 
+        printf("[ERROR] Cannot connect to auth server\n"); 
         Sleep(2000); 
-        fclose(f);
         FreeConsole();
         return false; 
     }
     
     if (KeyAuthLicense(key, hwid)) {
-        printf("  [SUCCESS] License verified!\n");
+        printf("[SUCCESS] License verified!\n");
     } else {
-        printf("  [ERROR] Invalid license key\n");
+        printf("[ERROR] Invalid license key\n");
         Sleep(2000);
-        fclose(f);
         FreeConsole();
         return false;
     }
     
-    printf("\n  [*] Starting VoidWare...\n");
+    printf("\n[*] Starting VoidWare...\n");
     Sleep(1000);
-    fclose(f);
-    FreeConsole();
+    
+    // Hide console but keep it alive
+    ShowWindow(hConsoleWnd, SW_HIDE);
+    
     return true;
 }
 
