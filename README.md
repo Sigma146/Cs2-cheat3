@@ -1,40 +1,33 @@
 // ============================================================
 // VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY WORKING)
-// ALL ERRORS FIXED - NO C4267, NO C2440
-// Compile: cl /EHsc /std:c++17 /MT /O2 /GL voidware_working.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
+// NO TEMPLATE ISSUES - VECTOR3 READ/WRITE FIXED
+// Compile: cl /EHsc /std:c++17 /MT voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <string>
-#include <vector>
 #include <cmath>
 #include <thread>
-#include <chrono>
 #include <random>
 #include <intrin.h>
 #include <winhttp.h>
 #include <shellapi.h>
-#include <mutex>
-#include <sstream>
 
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "shell32.lib")
 
-// ==================== VOIDWARE BRANDING ====================
-#define CHEAT_NAME "VoidWare"
 #define CHEAT_VERSION "1.0"
 #define CHEAT_COLOR_R 156
 #define CHEAT_COLOR_G 39
 #define CHEAT_COLOR_B 176
 
-// ==================== KEYAUTH CONFIGURATION ====================
+// ==================== KEYAUTH ====================
 #define KEYAUTH_NAME "VoidWare"
 #define KEYAUTH_OWNERID "XfwwmtO8U3"
 #define KEYAUTH_SECRET "45d0249b058e9d0734c00e6f23b2f7c518e4322a658d222166d4e244f4887d85"
 #define KEYAUTH_VERSION "1.0"
-
 #define KEYAUTH_API "keyauth.win"
 #define KEYAUTH_INIT "/api/1.2/init.php"
 #define KEYAUTH_LICENSE "/api/1.2/license.php"
@@ -61,44 +54,10 @@ namespace Offsets {
     constexpr uintptr_t m_aimPunchAngle = 0x2E0;
 }
 
-// ==================== AIM POINT ENUM ====================
-enum AimPoint { AIM_HEAD = 0, AIM_NECK = 1, AIM_TORSO = 2, AIM_PELVIS = 3 };
-const char* AimPointNames[] = { "Head", "Neck", "Torso", "Pelvis" };
-const int AimPointBones[] = { 6, 7, 5, 0 };
-
-// ==================== FEATURE TOGGLES ====================
-struct AimSettings {
-    bool silentAim = false;
-    bool memoryAimbot = true;
-    int smoothness = 5;
-    int fov = 30;
-    int aimKey = VK_XBUTTON1;
-    bool fovCircle = true;
-    int fovCircleRadius = 30;
-    AimPoint aimPoint = AIM_HEAD;
-} g_aim;
-
-struct VisualSettings {
-    bool espBox = true;
-    bool espHealth = true;
-    bool espDistance = true;
-    bool teamCheck = true;
-    bool glow = true;
-    bool thirdPerson = false;
-    float thirdPersonDistance = 100.0f;
-    int gameFOV = 90;
-} g_visual;
-
-struct RageSettings {
-    bool bhop = true;
-    bool triggerbot = false;
-    int triggerKey = VK_XBUTTON2;
-    int triggerDelay = 20;
-} g_rage;
-
-struct WatermarkInfo {
-    int fps = 0;
-} g_watermark;
+// ==================== SIMPLE VECTOR3 - NO TEMPLATE ISSUES ====================
+struct Vector3 {
+    float x, y, z;
+};
 
 // ==================== GLOBALS ====================
 HANDLE g_hProcess = NULL;
@@ -109,28 +68,107 @@ int g_screenWidth = 1920;
 int g_screenHeight = 1080;
 bool g_menuOpen = true;
 int g_currentTab = 0;
-std::mutex g_mutex;
 
-// ==================== VECTOR3 STRUCTURE - FIXED ====================
-struct Vector3 {
-    float x, y, z;
-    
-    Vector3() : x(0), y(0), z(0) {}
-    Vector3(float _x, float _y, float _z) : x(_x), y(_y), z(_z) {}
-    
-    Vector3 operator+(const Vector3& v) const { return Vector3(x + v.x, y + v.y, z + v.z); }
-    Vector3 operator-(const Vector3& v) const { return Vector3(x - v.x, y - v.y, z - v.z); }
-    Vector3 operator*(float s) const { return Vector3(x * s, y * s, z * s); }
-    
-    float Length() const { return sqrtf(x*x + y*y + z*z); }
-    void Normalize() { float l = Length(); if (l > 0.001f) { x /= l; y /= l; z /= l; } }
-    float DistTo(const Vector3& v) const { 
-        float dx = x - v.x, dy = y - v.y, dz = z - v.z; 
-        return sqrtf(dx*dx + dy*dy + dz*dz); 
+// ==================== FEATURE TOGGLES ====================
+bool g_silentAim = false;
+bool g_memoryAimbot = true;
+int g_aimSmoothness = 5;
+int g_aimFov = 30;
+int g_aimKey = VK_XBUTTON1;
+bool g_fovCircle = true;
+int g_fovCircleRadius = 30;
+int g_aimPoint = 0;
+const char* g_aimPointNames[] = { "Head", "Neck", "Torso", "Pelvis" };
+const int g_aimPointBones[] = { 6, 7, 5, 0 };
+
+bool g_espBox = true;
+bool g_espHealth = true;
+bool g_espDistance = true;
+bool g_teamCheck = true;
+bool g_glow = true;
+bool g_thirdPerson = false;
+float g_thirdPersonDistance = 100.0f;
+int g_gameFOV = 90;
+
+bool g_bhop = true;
+bool g_triggerbot = false;
+int g_triggerKey = VK_XBUTTON2;
+int g_triggerDelay = 20;
+
+int g_fps = 0;
+
+// ==================== EXPLICIT READ FUNCTIONS (NO TEMPLATE ISSUES) ====================
+uintptr_t ReadPtr(uintptr_t address) {
+    uintptr_t value = 0;
+    if (g_hProcess && address) {
+        ReadProcessMemory(g_hProcess, (LPCVOID)address, &value, sizeof(value), NULL);
     }
-};
+    return value;
+}
 
-// ==================== HWID GENERATION ====================
+int ReadInt(uintptr_t address) {
+    int value = 0;
+    if (g_hProcess && address) {
+        ReadProcessMemory(g_hProcess, (LPCVOID)address, &value, sizeof(value), NULL);
+    }
+    return value;
+}
+
+float ReadFloat(uintptr_t address) {
+    float value = 0;
+    if (g_hProcess && address) {
+        ReadProcessMemory(g_hProcess, (LPCVOID)address, &value, sizeof(value), NULL);
+    }
+    return value;
+}
+
+bool ReadBool(uintptr_t address) {
+    bool value = false;
+    if (g_hProcess && address) {
+        ReadProcessMemory(g_hProcess, (LPCVOID)address, &value, sizeof(value), NULL);
+    }
+    return value;
+}
+
+Vector3 ReadVec3(uintptr_t address) {
+    Vector3 result = { 0, 0, 0 };
+    if (g_hProcess && address) {
+        ReadProcessMemory(g_hProcess, (LPCVOID)address, &result, sizeof(result), NULL);
+    }
+    return result;
+}
+
+void WritePtr(uintptr_t address, uintptr_t value) {
+    if (g_hProcess && address) {
+        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(value), NULL);
+    }
+}
+
+void WriteInt(uintptr_t address, int value) {
+    if (g_hProcess && address) {
+        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(value), NULL);
+    }
+}
+
+void WriteFloat(uintptr_t address, float value) {
+    if (g_hProcess && address) {
+        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(value), NULL);
+    }
+}
+
+void WriteBool(uintptr_t address, bool value) {
+    if (g_hProcess && address) {
+        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(value), NULL);
+    }
+}
+
+void WriteVec3(uintptr_t address, Vector3 value) {
+    if (g_hProcess && address) {
+        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(value), NULL);
+    }
+}
+
+// ==================== KEYAUTH ====================
 std::string GenerateHWID() {
     char hwid[128];
     DWORD volumeSerial = 0;
@@ -144,7 +182,6 @@ std::string GenerateHWID() {
     return std::string(hwid);
 }
 
-// ==================== KEYAUTH HTTP REQUESTS ====================
 std::string HTTPPost(const std::string& host, const std::string& path, const std::string& data) {
     std::string result;
     HINTERNET hSession = WinHttpOpen(L"VoidWare", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
@@ -159,7 +196,7 @@ std::string HTTPPost(const std::string& host, const std::string& path, const std
     if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return result; }
     
     LPCWSTR headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
-    DWORD dataLen = (DWORD)data.length();  // FIXED: explicit cast for C4267
+    DWORD dataLen = (DWORD)data.length();
     WinHttpSendRequest(hRequest, headers, wcslen(headers), (LPVOID)data.c_str(), dataLen, dataLen, 0);
     WinHttpReceiveResponse(hRequest, NULL);
     
@@ -183,7 +220,7 @@ bool KeyAuthInit() {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_INIT, postData);
-    return (response.find("\"success\":true") != std::string::npos);
+    return response.find("\"success\":true") != std::string::npos;
 }
 
 bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
@@ -193,7 +230,7 @@ bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_LICENSE, postData);
-    return (response.find("\"success\":true") != std::string::npos);
+    return response.find("\"success\":true") != std::string::npos;
 }
 
 bool ShowAuthDialog() {
@@ -203,10 +240,9 @@ bool ShowAuthDialog() {
     SetConsoleTitle(L"VoidWare - Authentication");
     
     printf("\n");
-    printf("  ╔════════════════════════════════════════════════════════════╗\n");
-    printf("  ║                      VOIDWARE v%s                         ║\n", CHEAT_VERSION);
-    printf("  ║                  CS2 Undetectable Cheat                    ║\n");
-    printf("  ╚════════════════════════════════════════════════════════════╝\n\n");
+    printf("  ╔══════════════════════════════════════════════════════╗\n");
+    printf("  ║              VOIDWARE v%s - CS2 CHEAT               ║\n", CHEAT_VERSION);
+    printf("  ╚══════════════════════════════════════════════════════╝\n\n");
     
     std::string hwid = GenerateHWID();
     printf("  HWID: %s\n\n", hwid.c_str());
@@ -217,7 +253,7 @@ bool ShowAuthDialog() {
     printf("\n  [*] Verifying license key...\n");
     
     if (!KeyAuthInit()) { 
-        printf("  [ERROR] Failed to connect to auth server\n"); 
+        printf("  [ERROR] Cannot connect to auth server\n"); 
         Sleep(2000); 
         fclose(f);
         FreeConsole();
@@ -225,7 +261,7 @@ bool ShowAuthDialog() {
     }
     
     if (KeyAuthLicense(key, hwid)) {
-        printf("  [SUCCESS] License key verified!\n");
+        printf("  [SUCCESS] License verified!\n");
     } else {
         printf("  [ERROR] Invalid license key\n");
         Sleep(2000);
@@ -243,10 +279,13 @@ bool ShowAuthDialog() {
 
 // ==================== MATH FUNCTIONS ====================
 Vector3 CalcAngle(Vector3 src, Vector3 dst) {
-    Vector3 delta = dst - src;
     Vector3 angles;
-    angles.y = atan2f(delta.y, delta.x) * 57.295779513f;
-    angles.x = -atan2f(delta.z, sqrtf(delta.x*delta.x + delta.y*delta.y)) * 57.295779513f;
+    float deltaX = dst.x - src.x;
+    float deltaY = dst.y - src.y;
+    float deltaZ = dst.z - src.z;
+    
+    angles.y = atan2f(deltaY, deltaX) * 57.295779513f;
+    angles.x = -atan2f(deltaZ, sqrtf(deltaX*deltaX + deltaY*deltaY)) * 57.295779513f;
     angles.z = 0;
     
     if (angles.x > 89.0f) angles.x = 89.0f;
@@ -257,69 +296,54 @@ Vector3 CalcAngle(Vector3 src, Vector3 dst) {
 }
 
 float GetFov(Vector3 viewAngle, Vector3 aimAngle) {
-    Vector3 delta = aimAngle - viewAngle;
-    return sqrtf(delta.x*delta.x + delta.y*delta.y);
+    float dx = aimAngle.x - viewAngle.x;
+    float dy = aimAngle.y - viewAngle.y;
+    return sqrtf(dx*dx + dy*dy);
 }
 
-// ==================== MEMORY FUNCTIONS ====================
-template<typename T>
-T Read(uintptr_t address) {
-    T buffer = {0};
-    if (g_hProcess && address) {
-        ReadProcessMemory(g_hProcess, (LPCVOID)address, &buffer, sizeof(T), NULL);
-    }
-    return buffer;
-}
-
-template<typename T>
-void Write(uintptr_t address, T value) {
-    if (g_hProcess && address) {
-        WriteProcessMemory(g_hProcess, (LPVOID)address, &value, sizeof(T), NULL);
-    }
-}
-
-// FIXED: GetBonePosition with correct Vector3 construction
 Vector3 GetBonePosition(uintptr_t entity, int boneId) {
-    uintptr_t boneMatrix = Read<uintptr_t>(entity + 0x280);
-    if (!boneMatrix) return Vector3(0, 0, 0);
+    Vector3 result = { 0, 0, 0 };
+    uintptr_t boneMatrix = ReadPtr(entity + 0x280);
+    if (!boneMatrix) return result;
     
-    float x = Read<float>(boneMatrix + boneId * 0x30 + 0x0C);
-    float y = Read<float>(boneMatrix + boneId * 0x30 + 0x1C);
-    float z = Read<float>(boneMatrix + boneId * 0x30 + 0x2C);
-    
-    return Vector3(x, y, z);
+    result.x = ReadFloat(boneMatrix + boneId * 0x30 + 0x0C);
+    result.y = ReadFloat(boneMatrix + boneId * 0x30 + 0x1C);
+    result.z = ReadFloat(boneMatrix + boneId * 0x30 + 0x2C);
+    return result;
 }
 
-Vector3 GetAimPoint(uintptr_t entity, AimPoint aimPoint) {
-    int boneId = AimPointBones[(int)aimPoint];
+Vector3 GetAimPoint(uintptr_t entity, int aimPoint) {
+    int boneId = g_aimPointBones[aimPoint];
     return GetBonePosition(entity, boneId);
 }
 
 // ==================== AIMBOT ====================
-uintptr_t GetBestTarget(uintptr_t localPlayer, Vector3 localEyePos, float maxFov, AimPoint aimPoint, Vector3& outAimPos) {
+uintptr_t GetBestTarget(uintptr_t localPlayer, Vector3 localEyePos, float maxFov, int aimPoint, Vector3& outAimPos) {
     uintptr_t bestEntity = 0;
     float bestFov = maxFov;
-    Vector3 localAngles = Read<Vector3>(localPlayer + Offsets::m_angEyeAngles);
+    Vector3 localAngles = ReadVec3(localPlayer + Offsets::m_angEyeAngles);
     
     for (int i = 1; i <= 64; i++) {
-        uintptr_t entity = Read<uintptr_t>(g_clientBase + Offsets::dwEntityList + i * 0x8);
+        uintptr_t entity = ReadPtr(g_clientBase + Offsets::dwEntityList + i * 0x8);
         if (!entity) continue;
         
-        int health = Read<int>(entity + Offsets::m_iHealth);
+        int health = ReadInt(entity + Offsets::m_iHealth);
         if (health <= 0 || health > 100) continue;
         
-        int team = Read<int>(entity + Offsets::m_iTeamNum);
-        int localTeam = Read<int>(localPlayer + Offsets::m_iTeamNum);
+        int team = ReadInt(entity + Offsets::m_iTeamNum);
+        int localTeam = ReadInt(localPlayer + Offsets::m_iTeamNum);
         if (team == localTeam) continue;
         
-        bool dormant = Read<bool>(entity + Offsets::m_bDormant);
+        bool dormant = ReadBool(entity + Offsets::m_bDormant);
         if (dormant) continue;
         
         Vector3 aimPos = GetAimPoint(entity, aimPoint);
         if (aimPos.x == 0 && aimPos.y == 0 && aimPos.z == 0) {
-            Vector3 origin = Read<Vector3>(entity + Offsets::m_vecOrigin);
-            Vector3 viewOffset = Read<Vector3>(entity + Offsets::m_vecViewOffset);
-            aimPos = origin + viewOffset;
+            Vector3 origin = ReadVec3(entity + Offsets::m_vecOrigin);
+            Vector3 viewOffset = ReadVec3(entity + Offsets::m_vecViewOffset);
+            aimPos.x = origin.x + viewOffset.x;
+            aimPos.y = origin.y + viewOffset.y;
+            aimPos.z = origin.z + viewOffset.z;
         }
         
         Vector3 aimAngle = CalcAngle(localEyePos, aimPos);
@@ -335,180 +359,147 @@ uintptr_t GetBestTarget(uintptr_t localPlayer, Vector3 localEyePos, float maxFov
 }
 
 void MemoryAimbot(uintptr_t localPlayer, Vector3 localEyePos) {
-    if (!g_aim.memoryAimbot) return;
-    if (!(GetAsyncKeyState(g_aim.aimKey) & 0x8000)) return;
+    if (!g_memoryAimbot) return;
+    if (!(GetAsyncKeyState(g_aimKey) & 0x8000)) return;
     
     Vector3 aimPos;
-    uintptr_t target = GetBestTarget(localPlayer, localEyePos, (float)g_aim.fov, g_aim.aimPoint, aimPos);
+    uintptr_t target = GetBestTarget(localPlayer, localEyePos, (float)g_aimFov, g_aimPoint, aimPos);
     if (!target) return;
     
     Vector3 aimAngle = CalcAngle(localEyePos, aimPos);
-    Vector3 currentAngle = Read<Vector3>(localPlayer + Offsets::m_angEyeAngles);
+    Vector3 currentAngle = ReadVec3(localPlayer + Offsets::m_angEyeAngles);
     
-    if (g_aim.smoothness > 1) {
-        Vector3 delta = aimAngle - currentAngle;
-        float len = delta.Length();
-        if (len > 0.001f) {
-            delta.x /= len; delta.y /= len; delta.z /= len;
-            aimAngle.x = currentAngle.x + delta.x / (float)g_aim.smoothness;
-            aimAngle.y = currentAngle.y + delta.y / (float)g_aim.smoothness;
-        }
+    if (g_aimSmoothness > 1) {
+        float dx = (aimAngle.x - currentAngle.x) / (float)g_aimSmoothness;
+        float dy = (aimAngle.y - currentAngle.y) / (float)g_aimSmoothness;
+        aimAngle.x = currentAngle.x + dx;
+        aimAngle.y = currentAngle.y + dy;
     }
     
-    Write<Vector3>(localPlayer + Offsets::m_angEyeAngles, aimAngle);
+    WriteVec3(localPlayer + Offsets::m_angEyeAngles, aimAngle);
 }
 
 void SilentAim(uintptr_t localPlayer, Vector3 localEyePos) {
-    if (!g_aim.silentAim) return;
-    if (!(GetAsyncKeyState(g_aim.aimKey) & 0x8000)) return;
+    if (!g_silentAim) return;
+    if (!(GetAsyncKeyState(g_aimKey) & 0x8000)) return;
     
     Vector3 aimPos;
-    uintptr_t target = GetBestTarget(localPlayer, localEyePos, (float)g_aim.fov, g_aim.aimPoint, aimPos);
+    uintptr_t target = GetBestTarget(localPlayer, localEyePos, (float)g_aimFov, g_aimPoint, aimPos);
     if (!target) return;
     
     Vector3 aimAngle = CalcAngle(localEyePos, aimPos);
-    uintptr_t clientState = Read<uintptr_t>(g_clientBase + Offsets::dwClientState);
+    uintptr_t clientState = ReadPtr(g_clientBase + Offsets::dwClientState);
     if (clientState) {
-        Vector3 punch = Read<Vector3>(localPlayer + Offsets::m_aimPunchAngle);
+        Vector3 punch = ReadVec3(localPlayer + Offsets::m_aimPunchAngle);
         aimAngle.x = aimAngle.x - (punch.x * 2.0f);
         aimAngle.y = aimAngle.y - (punch.y * 2.0f);
-        Write<Vector3>(clientState + 0x4D88, aimAngle);
+        WriteVec3(clientState + 0x4D88, aimAngle);
     }
 }
 
-// ==================== TRIGGERBOT ====================
-bool IsCrosshairOnEnemy(uintptr_t localPlayer, Vector3 localEyePos) {
-    Vector3 aimPos;
-    uintptr_t target = GetBestTarget(localPlayer, localEyePos, 2.0f, g_aim.aimPoint, aimPos);
-    if (!target) return false;
-    
-    Vector3 localAngles = Read<Vector3>(localPlayer + Offsets::m_angEyeAngles);
-    Vector3 aimAngle = CalcAngle(localEyePos, aimPos);
-    return GetFov(localAngles, aimAngle) < 2.0f;
-}
-
 void Triggerbot(uintptr_t localPlayer, Vector3 localEyePos) {
-    if (!g_rage.triggerbot) return;
-    if (!(GetAsyncKeyState(g_rage.triggerKey) & 0x8000)) return;
-    if (!IsCrosshairOnEnemy(localPlayer, localEyePos)) return;
+    if (!g_triggerbot) return;
+    if (!(GetAsyncKeyState(g_triggerKey) & 0x8000)) return;
     
-    uintptr_t activeWeapon = Read<uintptr_t>(localPlayer + Offsets::m_hActiveWeapon);
+    Vector3 aimPos;
+    uintptr_t target = GetBestTarget(localPlayer, localEyePos, 2.0f, g_aimPoint, aimPos);
+    if (!target) return;
+    
+    uintptr_t activeWeapon = ReadPtr(localPlayer + Offsets::m_hActiveWeapon);
     if (!activeWeapon) return;
     
-    float nextAttack = Read<float>(activeWeapon + Offsets::m_flNextPrimaryAttack);
-    float curTime = Read<float>(g_clientBase + Offsets::dwGlobalVars + 0x8);
+    float nextAttack = ReadFloat(activeWeapon + Offsets::m_flNextPrimaryAttack);
+    float curTime = ReadFloat(g_clientBase + Offsets::dwGlobalVars + 0x8);
     if (nextAttack > curTime) return;
     
-    int clip = Read<int>(activeWeapon + Offsets::m_iClip1);
+    int clip = ReadInt(activeWeapon + Offsets::m_iClip1);
     if (clip <= 0) return;
     
     static DWORD lastShot = 0;
     DWORD now = GetTickCount();
-    if (now - lastShot >= (DWORD)g_rage.triggerDelay) {
-        Write<uintptr_t>(g_clientBase + Offsets::dwForceAttack, 6);
+    if (now - lastShot >= (DWORD)g_triggerDelay) {
+        WritePtr(g_clientBase + Offsets::dwForceAttack, 6);
         Sleep(1);
-        Write<uintptr_t>(g_clientBase + Offsets::dwForceAttack, 4);
+        WritePtr(g_clientBase + Offsets::dwForceAttack, 4);
         lastShot = now;
     }
 }
 
-// ==================== BUNNY HOP ====================
 void BunnyHop(uintptr_t localPlayer) {
-    if (!g_rage.bhop) return;
+    if (!g_bhop) return;
     if (!(GetAsyncKeyState(VK_SPACE) & 0x8000)) return;
-    
-    int flags = Read<int>(localPlayer + Offsets::m_fFlags);
+    int flags = ReadInt(localPlayer + Offsets::m_fFlags);
     if (flags & (1 << 0)) {
-        Write<uintptr_t>(g_clientBase + Offsets::dwForceJump, 6);
+        WritePtr(g_clientBase + Offsets::dwForceJump, 6);
         Sleep(1);
-        Write<uintptr_t>(g_clientBase + Offsets::dwForceJump, 4);
+        WritePtr(g_clientBase + Offsets::dwForceJump, 4);
     }
 }
 
-// ==================== 3RD PERSON & FOV ====================
 void SetThirdPerson(uintptr_t localPlayer) {
-    uintptr_t cameraServices = Read<uintptr_t>(localPlayer + 0x38);
+    uintptr_t cameraServices = ReadPtr(localPlayer + 0x38);
     if (cameraServices) {
-        if (g_visual.thirdPerson) {
-            Write<int>(cameraServices + 0x10, 1);
-            Write<float>(cameraServices + 0x14, g_visual.thirdPersonDistance);
+        if (g_thirdPerson) {
+            WriteInt(cameraServices + 0x10, 1);
+            WriteFloat(cameraServices + 0x14, g_thirdPersonDistance);
         } else {
-            Write<int>(cameraServices + 0x10, 0);
+            WriteInt(cameraServices + 0x10, 0);
         }
     }
 }
 
 void SetFOV(uintptr_t localPlayer) {
-    uintptr_t cameraServices = Read<uintptr_t>(localPlayer + 0x38);
+    uintptr_t cameraServices = ReadPtr(localPlayer + 0x38);
     if (cameraServices) {
-        float newFOV = (float)g_visual.gameFOV;
+        float newFOV = (float)g_gameFOV;
         if (newFOV < 70) newFOV = 70;
         if (newFOV > 179) newFOV = 179;
-        Write<float>(cameraServices + 0x18, newFOV);
-        Write<float>(cameraServices + 0x1C, newFOV);
+        WriteFloat(cameraServices + 0x18, newFOV);
+        WriteFloat(cameraServices + 0x1C, newFOV);
     }
 }
 
-// ==================== GLOW ESP ====================
 void ApplyGlow() {
-    if (!g_visual.glow) return;
-    
-    uintptr_t localPlayer = Read<uintptr_t>(g_clientBase + Offsets::dwLocalPlayer);
+    if (!g_glow) return;
+    uintptr_t localPlayer = ReadPtr(g_clientBase + Offsets::dwLocalPlayer);
     if (!localPlayer) return;
-    
-    int localTeam = Read<int>(localPlayer + Offsets::m_iTeamNum);
-    uintptr_t glowManager = Read<uintptr_t>(g_clientBase + 0x18D6048);
+    int localTeam = ReadInt(localPlayer + Offsets::m_iTeamNum);
+    uintptr_t glowManager = ReadPtr(g_clientBase + 0x18D6048);
     if (!glowManager) return;
     
     for (int i = 0; i < 64; i++) {
-        uintptr_t entity = Read<uintptr_t>(g_clientBase + Offsets::dwEntityList + i * 0x8);
+        uintptr_t entity = ReadPtr(g_clientBase + Offsets::dwEntityList + i * 0x8);
         if (!entity) continue;
-        
-        int health = Read<int>(entity + Offsets::m_iHealth);
+        int health = ReadInt(entity + Offsets::m_iHealth);
         if (health <= 0 || health > 100) continue;
-        
-        int team = Read<int>(entity + Offsets::m_iTeamNum);
-        if (g_visual.teamCheck && team == localTeam) continue;
-        
-        int glowIndex = Read<int>(entity + 0x328);
+        int team = ReadInt(entity + Offsets::m_iTeamNum);
+        if (g_teamCheck && team == localTeam) continue;
+        int glowIndex = ReadInt(entity + 0x328);
         if (glowIndex == -1) continue;
-        
         uintptr_t glowObject = glowManager + (glowIndex * 0x38);
         bool isEnemy = (team != localTeam);
-        
-        Write<float>(glowObject + 0x8, isEnemy ? 1.0f : 0.0f);
-        Write<float>(glowObject + 0xC, isEnemy ? 0.0f : 1.0f);
-        Write<float>(glowObject + 0x10, 0.0f);
-        Write<float>(glowObject + 0x14, 0.8f);
-        Write<bool>(glowObject + 0x28, true);
-        Write<bool>(glowObject + 0x29, false);
+        WriteFloat(glowObject + 0x8, isEnemy ? 1.0f : 0.0f);
+        WriteFloat(glowObject + 0xC, isEnemy ? 0.0f : 1.0f);
+        WriteFloat(glowObject + 0x10, 0.0f);
+        WriteFloat(glowObject + 0x14, 0.8f);
+        WriteBool(glowObject + 0x28, true);
+        WriteBool(glowObject + 0x29, false);
     }
 }
 
-// ==================== WATERMARK ====================
-void UpdateWatermark() {
-    static DWORD lastFPSTime = GetTickCount();
-    static int fpsCounter = 0;
-    
-    fpsCounter++;
+void UpdateFPS() {
+    static DWORD lastTime = GetTickCount();
+    static int counter = 0;
+    counter++;
     DWORD now = GetTickCount();
-    if (now - lastFPSTime >= 1000) {
-        g_watermark.fps = fpsCounter;
-        fpsCounter = 0;
-        lastFPSTime = now;
+    if (now - lastTime >= 1000) {
+        g_fps = counter;
+        counter = 0;
+        lastTime = now;
     }
 }
 
-// ==================== DRAWING FUNCTIONS ====================
-void DrawLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF color) {
-    HPEN pen = CreatePen(PS_SOLID, 1, color);
-    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
-    MoveToEx(hdc, x1, y1, NULL);
-    LineTo(hdc, x2, y2);
-    SelectObject(hdc, oldPen);
-    DeleteObject(pen);
-}
-
+// ==================== DRAWING ====================
 void DrawRect(HDC hdc, int x, int y, int w, int h, COLORREF color) {
     HPEN pen = CreatePen(PS_SOLID, 1, color);
     HPEN oldPen = (HPEN)SelectObject(hdc, pen);
@@ -532,21 +523,78 @@ void DrawText(HDC hdc, int x, int y, const char* text, COLORREF color) {
     TextOutA(hdc, x, y, text, (int)strlen(text));
 }
 
-void DrawFOVCircle(HDC hdc) {
-    if (!g_aim.fovCircle) return;
-    if (!g_hGameWnd) return;
+bool WorldToScreen(Vector3 pos, Vector3& screen, float* viewMatrix) {
+    float w = viewMatrix[12] * pos.x + viewMatrix[13] * pos.y + viewMatrix[14] * pos.z + viewMatrix[15];
+    if (w < 0.01f) return false;
+    float invW = 1.0f / w;
+    screen.x = (g_screenWidth / 2) + (0.5f * (viewMatrix[0] * pos.x + viewMatrix[1] * pos.y + viewMatrix[2] * pos.z + viewMatrix[3]) * invW * g_screenWidth);
+    screen.y = (g_screenHeight / 2) - (0.5f * (viewMatrix[4] * pos.x + viewMatrix[5] * pos.y + viewMatrix[6] * pos.z + viewMatrix[7]) * invW * g_screenHeight);
+    return true;
+}
+
+void DrawESP(HDC hdc, uintptr_t localPlayer, int localTeam, float* viewMatrix) {
+    if (!viewMatrix) return;
     
+    for (int i = 1; i <= 64; i++) {
+        uintptr_t entity = ReadPtr(g_clientBase + Offsets::dwEntityList + i * 0x8);
+        if (!entity) continue;
+        int health = ReadInt(entity + Offsets::m_iHealth);
+        if (health <= 0 || health > 100) continue;
+        int team = ReadInt(entity + Offsets::m_iTeamNum);
+        if (g_teamCheck && team == localTeam) continue;
+        
+        Vector3 origin = ReadVec3(entity + Offsets::m_vecOrigin);
+        Vector3 headOffset = ReadVec3(entity + Offsets::m_vecViewOffset);
+        Vector3 headPos;
+        headPos.x = origin.x + headOffset.x;
+        headPos.y = origin.y + headOffset.y;
+        headPos.z = origin.z + headOffset.z;
+        
+        Vector3 screenBottom, screenTop;
+        if (!WorldToScreen(origin, screenBottom, viewMatrix)) continue;
+        if (!WorldToScreen(headPos, screenTop, viewMatrix)) continue;
+        
+        float height = screenBottom.y - screenTop.y;
+        if (height < 1.0f) continue;
+        float width = height * 0.6f;
+        int x = (int)(screenBottom.x - width / 2);
+        int y = (int)screenTop.y;
+        int w = (int)width;
+        int h = (int)height;
+        
+        COLORREF color = (team != localTeam) ? RGB(255, 0, 0) : RGB(0, 255, 0);
+        
+        if (g_espBox) DrawRect(hdc, x, y, w, h, color);
+        if (g_espHealth) {
+            int healthHeight = (int)(h * (health / 100.0f));
+            if (healthHeight > 0) {
+                DrawFilledRect(hdc, x - 6, y + h - healthHeight, 4, healthHeight, RGB(0, 255, 0));
+            }
+        }
+        if (g_espDistance) {
+            char dist[32];
+            Vector3 localOrigin = ReadVec3(localPlayer + Offsets::m_vecOrigin);
+            float dx = origin.x - localOrigin.x;
+            float dy = origin.y - localOrigin.y;
+            float dz = origin.z - localOrigin.z;
+            float distance = sqrtf(dx*dx + dy*dy + dz*dz);
+            sprintf_s(dist, sizeof(dist), "%.0fm", distance);
+            DrawText(hdc, x + w / 2 - 15, y + h + 2, dist, RGB(255, 255, 255));
+        }
+    }
+}
+
+void DrawFOVCircle(HDC hdc) {
+    if (!g_fovCircle) return;
+    if (!g_hGameWnd) return;
     POINT cursor;
     GetCursorPos(&cursor);
     ScreenToClient(g_hGameWnd, &cursor);
-    
     HPEN pen = CreatePen(PS_SOLID, 1, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
     HPEN oldPen = (HPEN)SelectObject(hdc, pen);
     HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    
-    Ellipse(hdc, cursor.x - g_aim.fovCircleRadius, cursor.y - g_aim.fovCircleRadius,
-                 cursor.x + g_aim.fovCircleRadius, cursor.y + g_aim.fovCircleRadius);
-    
+    Ellipse(hdc, cursor.x - g_fovCircleRadius, cursor.y - g_fovCircleRadius,
+                 cursor.x + g_fovCircleRadius, cursor.y + g_fovCircleRadius);
     SelectObject(hdc, oldPen);
     SelectObject(hdc, oldBrush);
     DeleteObject(pen);
@@ -555,9 +603,8 @@ void DrawFOVCircle(HDC hdc) {
 void DrawWatermark(HDC hdc) {
     char watermark[256];
     sprintf_s(watermark, sizeof(watermark), "VoidWare v%s | FPS: %d | Aim: %s | 3rd: %s | FOV: %d",
-        CHEAT_VERSION, g_watermark.fps, AimPointNames[(int)g_aim.aimPoint],
-        g_visual.thirdPerson ? "ON" : "OFF", g_visual.gameFOV);
-    
+        CHEAT_VERSION, g_fps, g_aimPointNames[g_aimPoint],
+        g_thirdPerson ? "ON" : "OFF", g_gameFOV);
     SetTextColor(hdc, RGB(0, 0, 0));
     SetBkMode(hdc, TRANSPARENT);
     TextOutA(hdc, 11, 11, watermark, (int)strlen(watermark));
@@ -565,71 +612,6 @@ void DrawWatermark(HDC hdc) {
     TextOutA(hdc, 10, 10, watermark, (int)strlen(watermark));
 }
 
-bool WorldToScreen(const Vector3& pos, Vector3& screen, float* viewMatrix) {
-    if (!viewMatrix) return false;
-    
-    float w = viewMatrix[12] * pos.x + viewMatrix[13] * pos.y + viewMatrix[14] * pos.z + viewMatrix[15];
-    if (w < 0.01f) return false;
-    
-    float invW = 1.0f / w;
-    screen.x = (float)(g_screenWidth / 2) + (0.5f * (viewMatrix[0] * pos.x + viewMatrix[1] * pos.y + viewMatrix[2] * pos.z + viewMatrix[3]) * invW * (float)g_screenWidth);
-    screen.y = (float)(g_screenHeight / 2) - (0.5f * (viewMatrix[4] * pos.x + viewMatrix[5] * pos.y + viewMatrix[6] * pos.z + viewMatrix[7]) * invW * (float)g_screenHeight);
-    return true;
-}
-
-void DrawESP(HDC hdc, uintptr_t localPlayer, int localTeam, float* viewMatrix) {
-    if (!viewMatrix) return;
-    
-    for (int i = 1; i <= 64; i++) {
-        uintptr_t entity = Read<uintptr_t>(g_clientBase + Offsets::dwEntityList + i * 0x8);
-        if (!entity) continue;
-        
-        int health = Read<int>(entity + Offsets::m_iHealth);
-        if (health <= 0 || health > 100) continue;
-        
-        int team = Read<int>(entity + Offsets::m_iTeamNum);
-        if (g_visual.teamCheck && team == localTeam) continue;
-        
-        Vector3 origin = Read<Vector3>(entity + Offsets::m_vecOrigin);
-        Vector3 headPos = origin + Read<Vector3>(entity + Offsets::m_vecViewOffset);
-        
-        Vector3 screenBottom, screenTop;
-        if (!WorldToScreen(origin, screenBottom, viewMatrix)) continue;
-        if (!WorldToScreen(headPos, screenTop, viewMatrix)) continue;
-        
-        float height = screenBottom.y - screenTop.y;
-        if (height < 1.0f) continue;
-        
-        float width = height * 0.6f;
-        int x = (int)(screenBottom.x - width / 2);
-        int y = (int)screenTop.y;
-        int w = (int)width;
-        int h = (int)height;
-        
-        bool isEnemy = (team != localTeam);
-        COLORREF color = isEnemy ? RGB(255, 0, 0) : RGB(0, 255, 0);
-        
-        if (g_visual.espBox) {
-            DrawRect(hdc, x, y, w, h, color);
-        }
-        
-        if (g_visual.espHealth) {
-            int healthHeight = (int)(h * (health / 100.0f));
-            if (healthHeight > 0) {
-                DrawFilledRect(hdc, x - 6, y + h - healthHeight, 4, healthHeight, RGB(0, 255, 0));
-            }
-        }
-        
-        if (g_visual.espDistance) {
-            char dist[32];
-            float distance = origin.DistTo(Read<Vector3>(localPlayer + Offsets::m_vecOrigin));
-            sprintf_s(dist, sizeof(dist), "%.0fm", distance);
-            DrawText(hdc, x + w / 2 - 15, y + h + 2, dist, RGB(255, 255, 255));
-        }
-    }
-}
-
-// ==================== IN-GAME MENU ====================
 void DrawMenu(HDC hdc) {
     if (!g_menuOpen) return;
     
@@ -637,7 +619,7 @@ void DrawMenu(HDC hdc) {
     DrawRect(hdc, 50, 50, 350, 400, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
     
     char title[64];
-    sprintf_s(title, sizeof(title), "VOIDWARE v%s - INS TO TOGGLE", CHEAT_VERSION);
+    sprintf_s(title, "VOIDWARE v%s - INS TOGGLE", CHEAT_VERSION);
     DrawText(hdc, 70, 60, title, RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
     
     const char* tabs[] = { "AIM", "VISUAL", "RAGE" };
@@ -648,147 +630,77 @@ void DrawMenu(HDC hdc) {
     }
     
     int y = 130;
-    
     if (g_currentTab == 0) {
         DrawText(hdc, 70, y, "[F1] Cycle Aim Point", RGB(200, 200, 200));
-        DrawText(hdc, 70, y + 25, ("Current: " + std::string(AimPointNames[(int)g_aim.aimPoint])).c_str(), RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
-        DrawText(hdc, 70, y + 55, ("[F2] Aim FOV: " + std::to_string(g_aim.fov)).c_str(), RGB(200, 200, 200));
-        DrawText(hdc, 70, y + 80, ("[F3] Smoothness: " + std::to_string(g_aim.smoothness)).c_str(), RGB(200, 200, 200));
+        DrawText(hdc, 70, y + 25, ("Current: " + std::string(g_aimPointNames[g_aimPoint])).c_str(), RGB(CHEAT_COLOR_R, CHEAT_COLOR_G, CHEAT_COLOR_B));
+        DrawText(hdc, 70, y + 55, ("[F2] Aim FOV: " + std::to_string(g_aimFov)).c_str(), RGB(200, 200, 200));
+        DrawText(hdc, 70, y + 80, ("[F3] Smoothness: " + std::to_string(g_aimSmoothness)).c_str(), RGB(200, 200, 200));
         DrawText(hdc, 70, y + 105, "[F4] Toggle Silent Aim", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 105, g_aim.silentAim ? "[ON]" : "[OFF]", g_aim.silentAim ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 105, g_silentAim ? "[ON]" : "[OFF]", g_silentAim ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 130, "[F5] Toggle FOV Circle", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 130, g_aim.fovCircle ? "[ON]" : "[OFF]", g_aim.fovCircle ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 130, g_fovCircle ? "[ON]" : "[OFF]", g_fovCircle ? RGB(0,255,0) : RGB(255,0,0));
     }
     else if (g_currentTab == 1) {
         DrawText(hdc, 70, y, "[F1] Toggle ESP Box", RGB(200, 200, 200));
-        DrawText(hdc, 200, y, g_visual.espBox ? "[ON]" : "[OFF]", g_visual.espBox ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y, g_espBox ? "[ON]" : "[OFF]", g_espBox ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 25, "[F2] Toggle ESP Health", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 25, g_visual.espHealth ? "[ON]" : "[OFF]", g_visual.espHealth ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 25, g_espHealth ? "[ON]" : "[OFF]", g_espHealth ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 50, "[F3] Toggle ESP Distance", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 50, g_visual.espDistance ? "[ON]" : "[OFF]", g_visual.espDistance ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 50, g_espDistance ? "[ON]" : "[OFF]", g_espDistance ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 75, "[F4] Toggle Glow ESP", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 75, g_visual.glow ? "[ON]" : "[OFF]", g_visual.glow ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 75, g_glow ? "[ON]" : "[OFF]", g_glow ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 100, "[F5] Toggle 3rd Person", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 100, g_visual.thirdPerson ? "[ON]" : "[OFF]", g_visual.thirdPerson ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 100, g_thirdPerson ? "[ON]" : "[OFF]", g_thirdPerson ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 125, "[F6] Toggle Team Check", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 125, g_visual.teamCheck ? "[ON]" : "[OFF]", g_visual.teamCheck ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y + 125, g_teamCheck ? "[ON]" : "[OFF]", g_teamCheck ? RGB(0,255,0) : RGB(255,0,0));
     }
     else if (g_currentTab == 2) {
         DrawText(hdc, 70, y, "[F1] Toggle Bunny Hop", RGB(200, 200, 200));
-        DrawText(hdc, 200, y, g_rage.bhop ? "[ON]" : "[OFF]", g_rage.bhop ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 200, y, g_bhop ? "[ON]" : "[OFF]", g_bhop ? RGB(0,255,0) : RGB(255,0,0));
         DrawText(hdc, 70, y + 25, "[F2] Toggle Triggerbot", RGB(200, 200, 200));
-        DrawText(hdc, 200, y + 25, g_rage.triggerbot ? "[ON]" : "[OFF]", g_rage.triggerbot ? RGB(0,255,0) : RGB(255,0,0));
-        DrawText(hdc, 70, y + 55, ("[F3] Trigger Delay: " + std::to_string(g_rage.triggerDelay) + "ms").c_str(), RGB(200, 200, 200));
+        DrawText(hdc, 200, y + 25, g_triggerbot ? "[ON]" : "[OFF]", g_triggerbot ? RGB(0,255,0) : RGB(255,0,0));
+        DrawText(hdc, 70, y + 55, ("[F3] Trigger Delay: " + std::to_string(g_triggerDelay) + "ms").c_str(), RGB(200, 200, 200));
     }
     
-    DrawText(hdc, 70, 380, "[F12] Save Config", RGB(200, 200, 200));
-    DrawText(hdc, 70, 395, "[END] Exit", RGB(200, 200, 200));
+    DrawText(hdc, 70, 380, "[END] Exit", RGB(200, 200, 200));
 }
 
-// ==================== HOTKEY HANDLER ====================
 void HandleHotkeys() {
     if (GetAsyncKeyState(VK_F1) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 0) {
-            g_aim.aimPoint = (AimPoint)(((int)g_aim.aimPoint + 1) % 4);
-        } else if (g_currentTab == 1) {
-            g_visual.espBox = !g_visual.espBox;
-        } else if (g_currentTab == 2) {
-            g_rage.bhop = !g_rage.bhop;
-        }
+        if (g_currentTab == 0) { g_aimPoint = (g_aimPoint + 1) % 4; }
+        else if (g_currentTab == 1) { g_espBox = !g_espBox; }
+        else if (g_currentTab == 2) { g_bhop = !g_bhop; }
     }
     if (GetAsyncKeyState(VK_F2) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 0) {
-            g_aim.fov += 5; if (g_aim.fov > 180) g_aim.fov = 5;
-        } else if (g_currentTab == 1) {
-            g_visual.espHealth = !g_visual.espHealth;
-        } else if (g_currentTab == 2) {
-            g_rage.triggerbot = !g_rage.triggerbot;
-        }
+        if (g_currentTab == 0) { g_aimFov += 5; if (g_aimFov > 180) g_aimFov = 5; }
+        else if (g_currentTab == 1) { g_espHealth = !g_espHealth; }
+        else if (g_currentTab == 2) { g_triggerbot = !g_triggerbot; }
     }
     if (GetAsyncKeyState(VK_F3) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 0) {
-            g_aim.smoothness += 1; if (g_aim.smoothness > 20) g_aim.smoothness = 1;
-        } else if (g_currentTab == 1) {
-            g_visual.espDistance = !g_visual.espDistance;
-        } else if (g_currentTab == 2) {
-            g_rage.triggerDelay += 10; if (g_rage.triggerDelay > 200) g_rage.triggerDelay = 10;
-        }
+        if (g_currentTab == 0) { g_aimSmoothness += 1; if (g_aimSmoothness > 20) g_aimSmoothness = 1; }
+        else if (g_currentTab == 1) { g_espDistance = !g_espDistance; }
+        else if (g_currentTab == 2) { g_triggerDelay += 10; if (g_triggerDelay > 200) g_triggerDelay = 10; }
     }
     if (GetAsyncKeyState(VK_F4) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 0) g_aim.silentAim = !g_aim.silentAim;
-        else if (g_currentTab == 1) g_visual.glow = !g_visual.glow;
+        if (g_currentTab == 0) g_silentAim = !g_silentAim;
+        else if (g_currentTab == 1) g_glow = !g_glow;
     }
     if (GetAsyncKeyState(VK_F5) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 0) g_aim.fovCircle = !g_aim.fovCircle;
-        else if (g_currentTab == 1) g_visual.thirdPerson = !g_visual.thirdPerson;
+        if (g_currentTab == 0) g_fovCircle = !g_fovCircle;
+        else if (g_currentTab == 1) g_thirdPerson = !g_thirdPerson;
     }
     if (GetAsyncKeyState(VK_F6) & 1) {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_currentTab == 1) g_visual.teamCheck = !g_visual.teamCheck;
+        if (g_currentTab == 1) g_teamCheck = !g_teamCheck;
     }
-    if (GetAsyncKeyState(VK_INSERT) & 1) {
-        g_menuOpen = !g_menuOpen;
-    }
-    if (GetAsyncKeyState(VK_END) & 1) {
-        exit(0);
-    }
-    
-    if (GetAsyncKeyState(VK_PRIOR) & 1) { 
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_visual.gameFOV += 5; 
-        if (g_visual.gameFOV > 179) g_visual.gameFOV = 179; 
-    }
-    if (GetAsyncKeyState(VK_NEXT) & 1) { 
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_visual.gameFOV -= 5; 
-        if (g_visual.gameFOV < 70) g_visual.gameFOV = 70; 
-    }
-    
-    if ((GetAsyncKeyState(VK_ADD) & 1) || (GetAsyncKeyState(VK_OEM_PLUS) & 1)) { 
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_visual.thirdPersonDistance += 10; 
-        if (g_visual.thirdPersonDistance > 300) g_visual.thirdPersonDistance = 300; 
-    }
-    if ((GetAsyncKeyState(VK_SUBTRACT) & 1) || (GetAsyncKeyState(VK_OEM_MINUS) & 1)) { 
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_visual.thirdPersonDistance -= 10; 
-        if (g_visual.thirdPersonDistance < 30) g_visual.thirdPersonDistance = 30; 
-    }
-    
+    if (GetAsyncKeyState(VK_INSERT) & 1) g_menuOpen = !g_menuOpen;
+    if (GetAsyncKeyState(VK_END) & 1) exit(0);
+    if (GetAsyncKeyState(VK_PRIOR) & 1) { g_gameFOV += 5; if (g_gameFOV > 179) g_gameFOV = 179; }
+    if (GetAsyncKeyState(VK_NEXT) & 1) { g_gameFOV -= 5; if (g_gameFOV < 70) g_gameFOV = 70; }
+    if ((GetAsyncKeyState(VK_ADD) & 1) || (GetAsyncKeyState(VK_OEM_PLUS) & 1)) { g_thirdPersonDistance += 10; if (g_thirdPersonDistance > 300) g_thirdPersonDistance = 300; }
+    if ((GetAsyncKeyState(VK_SUBTRACT) & 1) || (GetAsyncKeyState(VK_OEM_MINUS) & 1)) { g_thirdPersonDistance -= 10; if (g_thirdPersonDistance < 30) g_thirdPersonDistance = 30; }
     if (GetAsyncKeyState('1') & 1) g_currentTab = 0;
     if (GetAsyncKeyState('2') & 1) g_currentTab = 1;
     if (GetAsyncKeyState('3') & 1) g_currentTab = 2;
-}
-
-// ==================== HIDE FROM ANTI-CHEAT ====================
-void HideThread() {
-    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
-    if (ntdll) {
-        auto NtSetInformationThread = (NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG))GetProcAddress(ntdll, "NtSetInformationThread");
-        if (NtSetInformationThread) {
-            NtSetInformationThread(GetCurrentThread(), 0x11, NULL, 0);
-        }
-    }
-}
-
-void PatchETW() {
-    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
-    if (ntdll) {
-        BYTE* etwEventWrite = (BYTE*)GetProcAddress(ntdll, "EtwEventWrite");
-        if (etwEventWrite) {
-            DWORD oldProtect;
-            VirtualProtect(etwEventWrite, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-            etwEventWrite[0] = 0x31;
-            etwEventWrite[1] = 0xC0;
-            etwEventWrite[2] = 0xC3;
-            VirtualProtect(etwEventWrite, 5, oldProtect, &oldProtect);
-        }
-    }
 }
 
 // ==================== PROCESS FUNCTIONS ====================
@@ -796,14 +708,10 @@ DWORD GetProcessId(const wchar_t* name) {
     PROCESSENTRY32W pe = { sizeof(pe) };
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) return 0;
-    
     DWORD pid = 0;
     if (Process32FirstW(snap, &pe)) {
         do {
-            if (_wcsicmp(pe.szExeFile, name) == 0) {
-                pid = pe.th32ProcessID;
-                break;
-            }
+            if (_wcsicmp(pe.szExeFile, name) == 0) { pid = pe.th32ProcessID; break; }
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
@@ -813,15 +721,11 @@ DWORD GetProcessId(const wchar_t* name) {
 uintptr_t GetModuleBase(DWORD pid, const wchar_t* moduleName) {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (snap == INVALID_HANDLE_VALUE) return 0;
-    
     MODULEENTRY32W me = { sizeof(me) };
     uintptr_t base = 0;
     if (Module32FirstW(snap, &me)) {
         do {
-            if (_wcsicmp(me.szModule, moduleName) == 0) {
-                base = (uintptr_t)me.modBaseAddr;
-                break;
-            }
+            if (_wcsicmp(me.szModule, moduleName) == 0) { base = (uintptr_t)me.modBaseAddr; break; }
         } while (Module32NextW(snap, &me));
     }
     CloseHandle(snap);
@@ -832,10 +736,17 @@ void LaunchCS2() {
     ShellExecuteW(NULL, L"open", L"steam://rungameid/730", NULL, NULL, SW_SHOW);
 }
 
+void HideThread() {
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll) {
+        auto NtSetInformationThread = (NTSTATUS(NTAPI*)(HANDLE, ULONG, PVOID, ULONG))GetProcAddress(ntdll, "NtSetInformationThread");
+        if (NtSetInformationThread) NtSetInformationThread(GetCurrentThread(), 0x11, NULL, 0);
+    }
+}
+
 // ==================== MAIN CHEAT LOOP ====================
 void CheatLoop() {
     HideThread();
-    PatchETW();
     
     while (true) {
         if (!g_hGameWnd) {
@@ -858,11 +769,14 @@ void CheatLoop() {
         if (g_screenWidth < 1) g_screenWidth = 1920;
         if (g_screenHeight < 1) g_screenHeight = 1080;
         
-        uintptr_t localPlayer = Read<uintptr_t>(g_clientBase + Offsets::dwLocalPlayer);
+        uintptr_t localPlayer = ReadPtr(g_clientBase + Offsets::dwLocalPlayer);
         if (localPlayer) {
-            Vector3 origin = Read<Vector3>(localPlayer + Offsets::m_vecOrigin);
-            Vector3 viewOffset = Read<Vector3>(localPlayer + Offsets::m_vecViewOffset);
-            Vector3 eyePos = origin + viewOffset;
+            Vector3 origin = ReadVec3(localPlayer + Offsets::m_vecOrigin);
+            Vector3 viewOffset = ReadVec3(localPlayer + Offsets::m_vecViewOffset);
+            Vector3 eyePos;
+            eyePos.x = origin.x + viewOffset.x;
+            eyePos.y = origin.y + viewOffset.y;
+            eyePos.z = origin.z + viewOffset.z;
             
             MemoryAimbot(localPlayer, eyePos);
             SilentAim(localPlayer, eyePos);
@@ -872,16 +786,15 @@ void CheatLoop() {
             SetThirdPerson(localPlayer);
             SetFOV(localPlayer);
             HandleHotkeys();
-            UpdateWatermark();
+            UpdateFPS();
         }
         
         if (g_hDC && g_hGameWnd) {
             float viewMatrix[16];
             ReadProcessMemory(g_hProcess, (LPCVOID)(g_clientBase + Offsets::dwViewMatrix), viewMatrix, sizeof(viewMatrix), NULL);
-            
             int localTeam = 0;
-            uintptr_t localPlayer = Read<uintptr_t>(g_clientBase + Offsets::dwLocalPlayer);
-            if (localPlayer) localTeam = Read<int>(localPlayer + Offsets::m_iTeamNum);
+            uintptr_t localPlayer = ReadPtr(g_clientBase + Offsets::dwLocalPlayer);
+            if (localPlayer) localTeam = ReadInt(localPlayer + Offsets::m_iTeamNum);
             
             DrawESP(g_hDC, localPlayer, localTeam, viewMatrix);
             DrawFOVCircle(g_hDC);
@@ -893,7 +806,7 @@ void CheatLoop() {
     }
 }
 
-// ==================== MAIN ENTRY POINT ====================
+// ==================== MAIN ====================
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     if (IsDebuggerPresent()) return 0;
     srand((unsigned int)GetTickCount());
@@ -901,28 +814,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     if (!ShowAuthDialog()) return 0;
     
     DWORD pid = GetProcessId(L"cs2.exe");
-    if (!pid) { 
-        LaunchCS2(); 
-        Sleep(5000); 
-        pid = GetProcessId(L"cs2.exe"); 
-    }
-    if (!pid) { 
-        MessageBoxA(NULL, "Failed to find CS2 process. Make sure the game is running.", "VoidWare Error", MB_OK); 
-        return 0; 
-    }
+    if (!pid) { LaunchCS2(); Sleep(5000); pid = GetProcessId(L"cs2.exe"); }
+    if (!pid) { MessageBoxA(NULL, "CS2 not found. Launch the game.", "VoidWare Error", MB_OK); return 0; }
     
     g_hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
-    if (!g_hProcess) { 
-        MessageBoxA(NULL, "Failed to open CS2 process. Run as Administrator.", "VoidWare Error", MB_OK); 
-        return 0; 
-    }
+    if (!g_hProcess) { MessageBoxA(NULL, "OpenProcess failed. Run as Administrator.", "VoidWare Error", MB_OK); return 0; }
     
     g_clientBase = GetModuleBase(pid, L"client.dll");
-    if (!g_clientBase) { 
-        MessageBoxA(NULL, "Failed to get client.dll base address. CS2 may have updated.", "VoidWare Error", MB_OK); 
-        CloseHandle(g_hProcess);
-        return 0; 
-    }
+    if (!g_clientBase) { MessageBoxA(NULL, "client.dll not found. CS2 may have updated.", "VoidWare Error", MB_OK); CloseHandle(g_hProcess); return 0; }
     
     std::thread cheatThread(CheatLoop);
     cheatThread.detach();
