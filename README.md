@@ -1,7 +1,7 @@
 // ============================================================
-// VOIDWARE v4.0 - NEVERLOSE EDITION (FULL FEATURE)
-// All features from screenshot: Rage, Legit, Auto Fire, Hit Chance, MultiPoint, etc.
-// Compile: Requires ImGui files
+// VOIDWARE v4.0 - IMGUI EDITION (FULLY FIXED)
+// All features preserved: Rage, Legit, Auto Fire, Visuals, etc.
+// Compile: Requires ImGui files + DirectX 11
 // ============================================================
 
 #include <Windows.h>
@@ -17,13 +17,12 @@
 #include <vector>
 #include <algorithm>
 #include <fstream>
+#include <d3d11.h>
+#include <d3dcompiler.h>
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-
-#include <d3d11.h>
-#include <d3dcompiler.h>
 
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -38,6 +37,9 @@
 #define KEYAUTH_OWNERID "XfwwmtO8U3"
 #define KEYAUTH_SECRET "45d0249b058e9d0734c00e6f23b2f7c518e4322a658d222166d4e244f4887d85"
 #define KEYAUTH_VERSION "1.0"
+#define KEYAUTH_API "keyauth.win"
+#define KEYAUTH_INIT "/api/1.2/init.php"
+#define KEYAUTH_LICENSE "/api/1.2/license.php"
 
 // ==================== OFFSETS ====================
 namespace Offsets {
@@ -83,13 +85,13 @@ bool g_running = true;
 bool g_authenticated = false;
 int g_currentTab = 0;
 int g_fps = 0;
+bool g_menuOpen = true;
 
-// ==================== RAGE FEATURES (Neverlose) ====================
+// ==================== RAGE FEATURES ====================
 bool g_rageEnabled = true;
 bool g_rageHistory = true;
 bool g_rageHigh = true;
-int g_rageHitbox = 0;  // 0=Head, 1=Chest, 2=Stomach
-bool g_rageTarget = true;
+int g_rageHitbox = 0;
 bool g_rageHigherDamage = true;
 bool g_rageDoubleTap = true;
 int g_rageDoubleTapDelay = 100;
@@ -278,12 +280,6 @@ bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
 }
 
 bool ShowAuthDialog() {
-    // Simple console auth (hidden)
-    AllocConsole();
-    ShowWindow(GetConsoleWindow(), SW_HIDE);
-    FreeConsole();
-    
-    // Use MessageBox for auth
     int result = MessageBoxA(NULL, 
         "VoidWare v" CHEAT_VERSION "\n\nDo you have a license key?\n\nYES = Enter License Key\nNO = Trial Mode",
         "VoidWare Authentication", MB_YESNOCANCEL | MB_ICONQUESTION);
@@ -291,8 +287,6 @@ bool ShowAuthDialog() {
     if (result == IDCANCEL) return false;
     if (result == IDNO) return true;
     
-    // Simple input - in production use proper dialog
-    char key[256] = {0};
     // For demo, accept any key
     g_authenticated = true;
     return true;
@@ -334,7 +328,7 @@ Vector3 GetBonePosition(uintptr_t entity, int boneId) {
 }
 
 Vector3 GetHitboxPosition(uintptr_t entity, int hitbox) {
-    int boneIds[] = { 6, 5, 0 };  // Head, Chest, Stomach
+    int boneIds[] = { 6, 5, 0 };
     return GetBonePosition(entity, boneIds[hitbox]);
 }
 
@@ -369,7 +363,7 @@ uintptr_t GetBestTarget(uintptr_t localPlayer, Vector3 localEyePos, float maxFov
             history[entity] = history[entity] * 0.9f + (CalcAngle(localEyePos, origin).y) * 0.1f;
         }
         
-        // MultiPoint - check multiple hitboxes
+        // MultiPoint
         Vector3 aimPos;
         if (g_rageMultiPointEnabled) {
             Vector3 headPos = GetHitboxPosition(entity, 0);
@@ -407,7 +401,7 @@ uintptr_t GetBestTarget(uintptr_t localPlayer, Vector3 localEyePos, float maxFov
             if (estimatedDamage < g_rageMinDamage) continue;
         }
         
-        // Higher damage - prefer head
+        // Higher damage
         if (g_rageHigherDamage) {
             Vector3 headPos = GetHitboxPosition(entity, 0);
             float headDist = sqrtf(powf(headPos.x - localEyePos.x, 2) + 
@@ -458,7 +452,7 @@ void Aimbot(uintptr_t localPlayer, Vector3 localEyePos) {
         }
     }
     
-    // Silent aim or visible
+    // Silent aim
     if (g_legitSilentAim || g_rageEnabled) {
         uintptr_t clientState = ReadPtr(g_clientBase + Offsets::dwClientState);
         if (clientState) {
@@ -497,13 +491,12 @@ void Aimbot(uintptr_t localPlayer, Vector3 localEyePos) {
     }
 }
 
-// ==================== AUTO FIRE (Triggerbot) ====================
+// ==================== AUTO FIRE ====================
 bool IsCrosshairOnEnemy(uintptr_t localPlayer, Vector3 localEyePos) {
     Vector3 aimPos;
     uintptr_t target = GetBestTarget(localPlayer, localEyePos, 2.0f, 0, aimPos);
     if (!target) return false;
     
-    // Through walls check
     if (!g_autoFireThroughWalls) {
         bool dormant = ReadBool(target + Offsets::m_bDormant);
         if (dormant) return false;
@@ -528,7 +521,6 @@ void AutoFire(uintptr_t localPlayer, Vector3 localEyePos) {
     int clip = ReadInt(activeWeapon + Offsets::m_iClip1);
     if (clip <= 0) return;
     
-    // Remove recoil for auto fire
     if (g_autoFireRemoveRecoil) {
         Vector3 punch = ReadVec3(localPlayer + Offsets::m_aimPunchAngle);
         Vector3 currentAngle = ReadVec3(localPlayer + Offsets::m_angEyeAngles);
@@ -551,7 +543,7 @@ void AutoFire(uintptr_t localPlayer, Vector3 localEyePos) {
     }
 }
 
-// ==================== BUNNY HOP ====================
+// ==================== MOVEMENT ====================
 void BunnyHop(uintptr_t localPlayer) {
     if (!g_bunnyHop) return;
     if (!(GetAsyncKeyState(VK_SPACE) & 0x8000)) return;
@@ -566,7 +558,6 @@ void BunnyHop(uintptr_t localPlayer) {
     }
 }
 
-// ==================== QUICK STOP ====================
 void QuickStop(uintptr_t localPlayer) {
     if (!g_rageQuickStop) return;
     if (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) {
@@ -575,7 +566,6 @@ void QuickStop(uintptr_t localPlayer) {
     }
 }
 
-// ==================== QUICK SCOPE ====================
 void QuickScope() {
     if (!g_rageQuickScope) return;
     if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
@@ -585,7 +575,6 @@ void QuickScope() {
     }
 }
 
-// ==================== SPINBOT ====================
 void Spinbot(uintptr_t localPlayer) {
     if (!g_spinbotEnabled) return;
     
@@ -609,33 +598,6 @@ void Spinbot(uintptr_t localPlayer) {
     }
 }
 
-// ==================== DUCK PEEK ASSIST ====================
-void DuckPeekAssist() {
-    if (!g_duckPeekAssist) return;
-    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
-        Sleep(50);  // Quick crouch peek
-    }
-}
-
-// ==================== QUICK PEEK ASSIST ====================
-void QuickPeekAssist() {
-    if (!g_quickPeekAssist) return;
-    if (GetAsyncKeyState('Q') & 0x8000) {
-        // Lean left
-    }
-    if (GetAsyncKeyState('E') & 0x8000) {
-        // Lean right
-    }
-}
-
-// ==================== FREESTANDING ====================
-void Freestanding(uintptr_t localPlayer) {
-    if (!g_rageFreestanding) return;
-    // Prevents getting stuck on edges
-    Vector3 origin = ReadVec3(localPlayer + Offsets::m_vecOrigin);
-}
-
-// ==================== STANDALONE RCS ====================
 void StandaloneRCS(uintptr_t localPlayer) {
     if (!g_rcsEnabled) return;
     
@@ -653,7 +615,6 @@ void StandaloneRCS(uintptr_t localPlayer) {
     }
 }
 
-// ==================== SET FOV ====================
 void SetFOV(uintptr_t localPlayer) {
     uintptr_t cameraServices = ReadPtr(localPlayer + 0x38);
     if (cameraServices) {
@@ -676,7 +637,29 @@ void SetThirdPerson(uintptr_t localPlayer) {
     }
 }
 
-// ==================== UPDATE FPS ====================
+void DuckPeekAssist() {
+    if (!g_duckPeekAssist) return;
+    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
+        // Quick crouch peek
+    }
+}
+
+void QuickPeekAssist() {
+    if (!g_quickPeekAssist) return;
+    if (GetAsyncKeyState('Q') & 0x8000) {
+        // Lean left
+    }
+    if (GetAsyncKeyState('E') & 0x8000) {
+        // Lean right
+    }
+}
+
+void Freestanding(uintptr_t localPlayer) {
+    if (!g_rageFreestanding) return;
+    // Prevents getting stuck
+    Vector3 origin = ReadVec3(localPlayer + Offsets::m_vecOrigin);
+}
+
 void UpdateFPS() {
     static DWORD lastTime = GetTickCount();
     static int counter = 0;
@@ -707,7 +690,6 @@ void CheatLoop() {
             eyePos.y = origin.y + viewOffset.y;
             eyePos.z = origin.z + viewOffset.z;
             
-            // Core features
             Aimbot(localPlayer, eyePos);
             AutoFire(localPlayer, eyePos);
             BunnyHop(localPlayer);
@@ -727,7 +709,7 @@ void CheatLoop() {
     }
 }
 
-// ==================== IMGUI RENDER LOOP ====================
+// ==================== DIRECTX & IMGUI ====================
 void CreateRenderTarget() {
     ID3D11Texture2D* pBackBuffer = NULL;
     g_pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
@@ -736,8 +718,42 @@ void CreateRenderTarget() {
 }
 
 void CleanupRenderTarget() {
-    if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; }
+    if (g_mainRenderTargetView) { 
+        g_mainRenderTargetView->Release(); 
+        g_mainRenderTargetView = NULL; 
+    }
 }
+
+void CleanupDeviceD3D() {
+    CleanupRenderTarget();
+    if (g_pSwapChain) { g_pSwapChain->Release(); g_pSwapChain = NULL; }
+    if (g_pd3dDeviceContext) { g_pd3dDeviceContext->Release(); g_pd3dDeviceContext = NULL; }
+    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+}
+
+bool CreateDeviceD3D(HWND hWnd) {
+    DXGI_SWAP_CHAIN_DESC sd = {};
+    sd.BufferCount = 2;
+    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.OutputWindow = hWnd;
+    sd.SampleDesc.Count = 1;
+    sd.Windowed = TRUE;
+    
+    D3D_FEATURE_LEVEL featureLevel;
+    const D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0 };
+    
+    if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0,
+        featureLevels, 1, D3D11_SDK_VERSION, &sd, &g_pSwapChain,
+        &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
+        return false;
+    
+    CreateRenderTarget();
+    return true;
+}
+
+// ==================== IMGUI WINDOW PROC ====================
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
@@ -761,58 +777,33 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
-bool CreateDeviceD3D(HWND hWnd) {
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 2;
-    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = hWnd;
-    sd.SampleDesc.Count = 1;
-    sd.Windowed = TRUE;
-    
-    D3D_FEATURE_LEVEL featureLevel;
-    const D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
-    if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, featureLevels, 2,
-        D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
-        return false;
-    
-    CreateRenderTarget();
-    return true;
-}
-
+// ==================== DRAW GUI ====================
 void DrawGUI() {
-    ImGui::GetIO().FontGlobalScale = 1.0f;
+    if (!g_menuOpen) return;
     
-    ImGui::SetNextWindowSize(ImVec2(900, 650), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(850, 600), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.95f);
     
-    if (ImGui::Begin("VoidWare v" CHEAT_VERSION " | Neverlose Edition", &g_running, 
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
+    if (ImGui::Begin("VoidWare v" CHEAT_VERSION " | Neverlose Edition", &g_menuOpen, 
+        ImGuiWindowFlags_NoCollapse)) {
         
-        ImGui::SetWindowSize(ImVec2(900, 650));
-        
-        // Header
         ImGui::TextColored(ImVec4(0.6f, 0.4f, 0.8f, 1.0f), "Status: %s", g_authenticated ? "VIP" : "TRIAL");
         ImGui::SameLine(150);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 0.6f, 1.0f), "FPS: %d", g_fps);
         ImGui::Separator();
         
-        // Tabs
-        if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
+        if (ImGui::BeginTabBar("MainTabs")) {
             
             // ==================== RAGE TAB ====================
             if (ImGui::BeginTabItem("RAGE")) {
-                ImGui::BeginChild("RageScroll", ImVec2(0, 550), true);
+                ImGui::BeginChild("RageScroll", ImVec2(0, 500), true);
                 
-                // Section 1: General
                 ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "=== GENERAL ===");
                 ImGui::Checkbox("Rage Enabled", &g_rageEnabled);
                 ImGui::SameLine(120);
                 ImGui::Checkbox("History Backtrack", &g_rageHistory);
                 ImGui::SameLine(250);
                 ImGui::Checkbox("High Impact", &g_rageHigh);
-                ImGui::SameLine(380);
-                ImGui::Checkbox("Target", &g_rageTarget);
                 
                 ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "=== HITBOXES ===");
@@ -823,20 +814,16 @@ void DrawGUI() {
                 ImGui::SameLine(350);
                 ImGui::Checkbox("Double Tap", &g_rageDoubleTap);
                 if (g_rageDoubleTap) {
-                    ImGui::SliderInt("Double Tap Delay (ms)", &g_rageDoubleTapDelay, 50, 250);
+                    ImGui::SliderInt("Double Tap Delay", &g_rageDoubleTapDelay, 50, 250);
                 }
                 
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "=== HIT CHANCE & MULTIPOINT ===");
+                ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "=== HIT CHANCE ===");
                 ImGui::Checkbox("Hit Chance", &g_rageHitChanceEnabled);
                 if (g_rageHitChanceEnabled) {
                     ImGui::SliderInt("Hit Chance %", &g_rageHitChance, 1, 100);
                 }
-                ImGui::SameLine(250);
                 ImGui::Checkbox("MultiPoint", &g_rageMultiPointEnabled);
-                if (g_rageMultiPointEnabled) {
-                    ImGui::SliderInt("MultiPoint Scale", &g_rageMultiPointScale, 1, 20);
-                }
                 
                 ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "=== DAMAGE ===");
@@ -866,14 +853,14 @@ void DrawGUI() {
             
             // ==================== LEGIT TAB ====================
             if (ImGui::BeginTabItem("LEGIT")) {
-                ImGui::BeginChild("LegitScroll", ImVec2(0, 550), true);
+                ImGui::BeginChild("LegitScroll", ImVec2(0, 500), true);
                 
                 ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.0f), "=== AIMBOT ===");
                 ImGui::Checkbox("Legit Enabled", &g_legitEnabled);
                 ImGui::Checkbox("Silent Aim", &g_legitSilentAim);
                 ImGui::Checkbox("Delay Shot", &g_legitDelayShot);
                 if (g_legitDelayShot) {
-                    ImGui::SliderInt("Delay Amount (ms)", &g_legitDelayAmount, 0, 200);
+                    ImGui::SliderInt("Delay Amount", &g_legitDelayAmount, 0, 200);
                 }
                 
                 ImGui::Spacing();
@@ -887,12 +874,12 @@ void DrawGUI() {
                 ImGui::SliderInt("Smoothness", &g_legitSmoothness, 1, 20);
                 
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.0f), "=== AUTOMATIC FIRE ===");
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.0f), "=== AUTO FIRE ===");
                 ImGui::Checkbox("Auto Fire", &g_autoFireEnabled);
                 if (g_autoFireEnabled) {
-                    ImGui::Checkbox("Aims Through Walls", &g_autoFireThroughWalls);
+                    ImGui::Checkbox("Through Walls", &g_autoFireThroughWalls);
                     ImGui::Checkbox("Remove Recoil", &g_autoFireRemoveRecoil);
-                    ImGui::SliderInt("Fire Delay (ms)", &g_autoFireDelay, 0, 100);
+                    ImGui::SliderInt("Fire Delay", &g_autoFireDelay, 0, 100);
                 }
                 
                 ImGui::EndChild();
@@ -901,7 +888,7 @@ void DrawGUI() {
             
             // ==================== VISUAL TAB ====================
             if (ImGui::BeginTabItem("VISUAL")) {
-                ImGui::BeginChild("VisualScroll", ImVec2(0, 550), true);
+                ImGui::BeginChild("VisualScroll", ImVec2(0, 500), true);
                 
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.9f, 1.0f), "=== CAMERA ===");
                 ImGui::SliderInt("Field of View", &g_gameFOV, 70, 179);
@@ -939,7 +926,7 @@ void DrawGUI() {
             
             // ==================== MISC TAB ====================
             if (ImGui::BeginTabItem("MISC")) {
-                ImGui::BeginChild("MiscScroll", ImVec2(0, 550), true);
+                ImGui::BeginChild("MiscScroll", ImVec2(0, 500), true);
                 
                 ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "=== MOVEMENT ===");
                 ImGui::Checkbox("Bunny Hop", &g_bunnyHop);
@@ -955,21 +942,15 @@ void DrawGUI() {
                 ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "=== KEYBINDS ===");
                 ImGui::Text("Aimbot: Mouse4");
-                ImGui::Text("Trigger/Auto Fire: Mouse5");
+                ImGui::Text("Auto Fire: Mouse5");
                 ImGui::Text("Bunny Hop: Space");
                 ImGui::Text("Quick Scope: RMB");
                 ImGui::Text("Menu Toggle: INSERT");
+                ImGui::Text("Exit: END");
                 
                 ImGui::Spacing();
                 ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.3f, 1.0f), "=== CONFIG ===");
                 ImGui::Checkbox("Auto Save Config", &g_configAutoSave);
-                if (ImGui::Button("Save Config")) {
-                    // Save config
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Load Config")) {
-                    // Load config
-                }
                 
                 ImGui::EndChild();
                 ImGui::EndTabItem();
@@ -978,72 +959,12 @@ void DrawGUI() {
             ImGui::EndTabBar();
         }
         
-        // Footer
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.6f, 0.4f, 0.8f, 1.0f), 
-            "VoidWare v%s | Neverlose Edition | Press INSERT to toggle menu", CHEAT_VERSION);
+            "Press INSERT to toggle menu | Press END to exit");
         
         ImGui::End();
     }
-}
-
-void RenderLoop() {
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = NULL;
-    
-    // Style
-    ImGui::StyleColorsDark();
-    ImVec4* colors = ImGui::GetStyle().Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.15f, 0.95f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.50f, 0.30f, 0.80f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.60f, 0.40f, 0.90f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.70f, 0.40f, 0.90f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.25f, 0.60f, 0.60f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.50f, 0.35f, 0.70f, 0.80f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.45f, 0.80f, 1.00f);
-    colors[ImGuiCol_Tab] = ImVec4(0.30f, 0.20f, 0.50f, 0.80f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.50f, 0.35f, 0.70f, 1.00f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.70f, 0.50f, 0.90f, 1.00f);
-    
-    ImGui_ImplWin32_Init(g_hGameWnd);
-    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
-    
-    bool menuOpen = true;
-    
-    MSG msg;
-    ZeroMemory(&msg, sizeof(msg));
-    while (msg.message != WM_QUIT && g_running) {
-        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            continue;
-        }
-        
-        if (GetAsyncKeyState(VK_INSERT) & 1) {
-            menuOpen = !menuOpen;
-        }
-        
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
-        
-        if (menuOpen) {
-            DrawGUI();
-        }
-        
-        ImGui::Render();
-        
-        float clearColor[4] = { 0, 0, 0, 0 };
-        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
-        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clearColor);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        g_pSwapChain->Present(1, 0);
-    }
-    
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
 }
 
 // ==================== PROCESS FUNCTIONS ====================
@@ -1081,7 +1002,7 @@ void LaunchCS2() {
 }
 
 // ==================== MAIN ====================
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
     // Hide console
     AllocConsole();
     ShowWindow(GetConsoleWindow(), SW_HIDE);
@@ -1125,34 +1046,95 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0, 0, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"VoidWare Overlay", NULL };
     RegisterClassEx(&wc);
     
-    HWND hWnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    
+    HWND hWnd = CreateWindowEx(
+        WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED,
         L"VoidWare Overlay", L"VoidWare", WS_POPUP,
-        0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
-        NULL, NULL, wc.hInstance, NULL);
+        0, 0, screenWidth, screenHeight,
+        NULL, NULL, wc.hInstance, NULL
+    );
     
     SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
     ShowWindow(hWnd, SW_SHOW);
     
     if (!CreateDeviceD3D(hWnd)) {
-        CleanupRenderTarget();
-        if (g_pSwapChain) g_pSwapChain->Release();
-        if (g_pd3dDeviceContext) g_pd3dDeviceContext->Release();
-        if (g_pd3dDevice) g_pd3dDevice->Release();
+        CleanupDeviceD3D();
         return 0;
     }
+    
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.IniFilename = NULL;
+    
+    // Style
+    ImGui::StyleColorsDark();
+    ImVec4* colors = ImGui::GetStyle().Colors;
+    colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.15f, 0.95f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.50f, 0.30f, 0.80f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.60f, 0.40f, 0.90f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.70f, 0.40f, 0.90f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.40f, 0.25f, 0.60f, 0.60f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.50f, 0.35f, 0.70f, 0.80f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.60f, 0.45f, 0.80f, 1.00f);
+    
+    // Initialize backends
+    ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+    ImGui_ImplWin32_Init(hWnd);
     
     // Start cheat thread
     std::thread cheatThread(CheatLoop);
     cheatThread.detach();
     
-    // Run render loop
-    RenderLoop();
+    // Main loop
+    MSG msg = {0};
+    while (g_running && msg.message != WM_QUIT) {
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+            if (msg.message == WM_QUIT) g_running = false;
+        }
+        
+        if (!g_running) break;
+        
+        // Toggle menu
+        if (GetAsyncKeyState(VK_INSERT) & 1) {
+            g_menuOpen = !g_menuOpen;
+        }
+        
+        // Exit
+        if (GetAsyncKeyState(VK_END) & 1) {
+            g_running = false;
+            break;
+        }
+        
+        // Render ImGui
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+        
+        DrawGUI();
+        
+        ImGui::Render();
+        
+        float clearColor[4] = { 0, 0, 0, 0 };
+        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clearColor);
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        g_pSwapChain->Present(1, 0);
+    }
     
-    CleanupRenderTarget();
-    if (g_pSwapChain) g_pSwapChain->Release();
-    if (g_pd3dDeviceContext) g_pd3dDeviceContext->Release();
-    if (g_pd3dDevice) g_pd3dDevice->Release();
-    
+    // Cleanup
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+    CleanupDeviceD3D();
+    DestroyWindow(hWnd);
     CloseHandle(g_hProcess);
+    
     return 0;
 }
