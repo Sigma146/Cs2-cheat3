@@ -1,6 +1,6 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT (CONSOLE FIXED)
-// Fixed: Console stays open on error, proper error messages
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY WORKING)
+// Fixed: Console pause, proper error handling
 // Compile: cl /EHsc /std:c++17 /MT voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
@@ -229,12 +229,7 @@ bool KeyAuthInit() {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_INIT, postData);
-    
-    if (response.find("ERROR") != std::string::npos) {
-        printf("[DEBUG] Init error: %s\n", response.c_str());
-        return false;
-    }
-    
+    if (response.find("ERROR") != std::string::npos) return false;
     return response.find("\"success\":true") != std::string::npos;
 }
 
@@ -245,22 +240,15 @@ bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
                            "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
                            "&ver=" + std::string(KEYAUTH_VERSION);
     std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_LICENSE, postData);
-    
-    printf("[DEBUG] Server response: %s\n", response.c_str());
-    
-    if (response.find("ERROR") != std::string::npos) {
-        return false;
-    }
-    
+    if (response.find("ERROR") != std::string::npos) return false;
     return response.find("\"success\":true") != std::string::npos;
 }
 
-// ==================== AUTHENTICATION ====================
+// ==================== AUTHENTICATION - WITH BYPASS OPTION ====================
 bool ShowAuthDialog() {
     AllocConsole();
     SetConsoleTitleA("VoidWare - Authentication");
     
-    // Set console to foreground
     HWND hConsoleWnd = GetConsoleWindow();
     ShowWindow(hConsoleWnd, SW_SHOW);
     SetForegroundWindow(hConsoleWnd);
@@ -276,17 +264,26 @@ bool ShowAuthDialog() {
     printf("HWID: %s\n\n", hwid.c_str());
     
     printf("[1] Login with License Key\n");
-    printf("[2] Exit\n\n");
+    printf("[2] Bypass Auth (TEST MODE)\n");
+    printf("[3] Exit\n\n");
     printf("Select option: ");
     
     int choice;
     scanf_s("%d", &choice);
     
-    if (choice != 1) {
+    if (choice == 3) {
         printf("\nExiting...\n");
-        system("pause");
+        Sleep(2000);
         FreeConsole();
         return false;
+    }
+    
+    if (choice == 2) {
+        printf("\n[*] BYPASS MODE ENABLED - Running without license!\n");
+        printf("[!] This is for testing only.\n");
+        Sleep(2000);
+        ShowWindow(hConsoleWnd, SW_HIDE);
+        return true;
     }
     
     printf("\nEnter License Key: ");
@@ -297,8 +294,9 @@ bool ShowAuthDialog() {
     
     if (!KeyAuthInit()) { 
         printf("[ERROR] Cannot connect to authentication server.\n");
-        printf("[ERROR] Please check your internet connection.\n");
-        system("pause");
+        printf("[ERROR] Check your internet connection.\n");
+        printf("\nPress ENTER to exit...");
+        getchar(); getchar();
         FreeConsole();
         return false; 
     }
@@ -309,8 +307,8 @@ bool ShowAuthDialog() {
         printf("[SUCCESS] License verified!\n");
     } else {
         printf("[ERROR] Invalid license key or HWID mismatch.\n");
-        printf("[ERROR] Make sure you entered the correct key.\n");
-        system("pause");
+        printf("\nPress ENTER to exit...");
+        getchar(); getchar();
         FreeConsole();
         return false;
     }
@@ -319,7 +317,6 @@ bool ShowAuthDialog() {
     Sleep(2000);
     
     ShowWindow(hConsoleWnd, SW_HIDE);
-    
     return true;
 }
 
