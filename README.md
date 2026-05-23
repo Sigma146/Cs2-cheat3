@@ -1,7 +1,7 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY WORKING)
-// Fixed: Console pause, proper error handling
-// Compile: cl /EHsc /std:c++17 /MT voidware.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (DEBUG VERSION)
+// Shows console output and stays open for debugging
+// Compile: cl /EHsc /std:c++17 /MT voidware_debug.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
 #include <Windows.h>
@@ -26,9 +26,6 @@
 #define KEYAUTH_OWNERID "XfwwmtO8U3"
 #define KEYAUTH_SECRET "45d0249b058e9d0734c00e6f23b2f7c518e4322a658d222166d4e244f4887d85"
 #define KEYAUTH_VERSION "1.0"
-#define KEYAUTH_API "keyauth.win"
-#define KEYAUTH_INIT "/api/1.2/init.php"
-#define KEYAUTH_LICENSE "/api/1.2/license.php"
 
 // ==================== OFFSETS ====================
 namespace Offsets {
@@ -66,6 +63,7 @@ int g_screenWidth = 1920;
 int g_screenHeight = 1080;
 bool g_menuOpen = true;
 int g_currentTab = 0;
+bool g_running = true;
 
 // ==================== FEATURE TOGGLES ====================
 bool g_silentAim = false;
@@ -166,157 +164,27 @@ void WriteVec3(uintptr_t address, Vector3 value) {
     }
 }
 
-// ==================== KEYAUTH HTTP ====================
-std::string GenerateHWID() {
-    char hwid[128];
-    DWORD volumeSerial = 0;
-    GetVolumeInformationA("C:\\", NULL, 0, &volumeSerial, NULL, NULL, NULL, 0);
-    int cpuInfo[4] = {0};
-    __cpuid(cpuInfo, 1);
-    char computerName[64];
-    DWORD size = sizeof(computerName);
-    GetComputerNameA(computerName, &size);
-    sprintf_s(hwid, sizeof(hwid), "%08X-%08X-%s", volumeSerial, cpuInfo[0], computerName);
-    return std::string(hwid);
-}
-
-std::string HTTPPost(const std::string& host, const std::string& path, const std::string& data) {
-    std::string result;
-    HINTERNET hSession = WinHttpOpen(L"VoidWare", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
-    if (!hSession) return "ERROR: WinHttpOpen failed";
-    
-    std::wstring whost(host.begin(), host.end());
-    HINTERNET hConnect = WinHttpConnect(hSession, whost.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConnect) { WinHttpCloseHandle(hSession); return "ERROR: WinHttpConnect failed"; }
-    
-    std::wstring wpath(path.begin(), path.end());
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", wpath.c_str(), NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
-    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return "ERROR: WinHttpOpenRequest failed"; }
-    
-    LPCWSTR headers = L"Content-Type: application/x-www-form-urlencoded\r\n";
-    DWORD dataLen = (DWORD)data.length();
-    if (!WinHttpSendRequest(hRequest, headers, wcslen(headers), (LPVOID)data.c_str(), dataLen, dataLen, 0)) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return "ERROR: WinHttpSendRequest failed";
-    }
-    
-    if (!WinHttpReceiveResponse(hRequest, NULL)) {
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return "ERROR: WinHttpReceiveResponse failed";
-    }
-    
-    DWORD bytesRead = 0;
-    char buffer[4096];
-    ZeroMemory(buffer, sizeof(buffer));
-    while (WinHttpReadData(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
-        buffer[bytesRead] = 0;
-        result += buffer;
-        ZeroMemory(buffer, sizeof(buffer));
-    }
-    
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-    return result;
-}
-
-bool KeyAuthInit() {
-    std::string postData = "type=init&name=" + std::string(KEYAUTH_NAME) + 
-                           "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
-                           "&ver=" + std::string(KEYAUTH_VERSION);
-    std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_INIT, postData);
-    if (response.find("ERROR") != std::string::npos) return false;
-    return response.find("\"success\":true") != std::string::npos;
-}
-
-bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid) {
-    std::string postData = "type=license&key=" + licenseKey + 
-                           "&hwid=" + hwid + 
-                           "&name=" + std::string(KEYAUTH_NAME) + 
-                           "&ownerid=" + std::string(KEYAUTH_OWNERID) + 
-                           "&ver=" + std::string(KEYAUTH_VERSION);
-    std::string response = HTTPPost(KEYAUTH_API, KEYAUTH_LICENSE, postData);
-    if (response.find("ERROR") != std::string::npos) return false;
-    return response.find("\"success\":true") != std::string::npos;
-}
-
-// ==================== AUTHENTICATION - WITH BYPASS OPTION ====================
+// ==================== KEYAUTH (SKIPPED FOR DEBUG) ====================
 bool ShowAuthDialog() {
-    AllocConsole();
-    SetConsoleTitleA("VoidWare - Authentication");
-    
-    HWND hConsoleWnd = GetConsoleWindow();
-    ShowWindow(hConsoleWnd, SW_SHOW);
-    SetForegroundWindow(hConsoleWnd);
-    BringWindowToTop(hConsoleWnd);
-    
-    system("cls");
-    
-    printf("============================================\n");
+    printf("\n============================================\n");
     printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
     printf("============================================\n\n");
     
-    std::string hwid = GenerateHWID();
-    printf("HWID: %s\n\n", hwid.c_str());
-    
-    printf("[1] Login with License Key\n");
-    printf("[2] Bypass Auth (TEST MODE)\n");
-    printf("[3] Exit\n\n");
+    printf("[1] Start Cheat (No License Required)\n");
+    printf("[2] Exit\n\n");
     printf("Select option: ");
     
     int choice;
     scanf_s("%d", &choice);
     
-    if (choice == 3) {
+    if (choice != 1) {
         printf("\nExiting...\n");
         Sleep(2000);
-        FreeConsole();
         return false;
     }
     
-    if (choice == 2) {
-        printf("\n[*] BYPASS MODE ENABLED - Running without license!\n");
-        printf("[!] This is for testing only.\n");
-        Sleep(2000);
-        ShowWindow(hConsoleWnd, SW_HIDE);
-        return true;
-    }
-    
-    printf("\nEnter License Key: ");
-    char key[256];
-    scanf_s("%s", key, (unsigned int)sizeof(key));
-    
-    printf("\n[*] Connecting to auth server...\n");
-    
-    if (!KeyAuthInit()) { 
-        printf("[ERROR] Cannot connect to authentication server.\n");
-        printf("[ERROR] Check your internet connection.\n");
-        printf("\nPress ENTER to exit...");
-        getchar(); getchar();
-        FreeConsole();
-        return false; 
-    }
-    
-    printf("[*] Verifying license key...\n");
-    
-    if (KeyAuthLicense(key, hwid)) {
-        printf("[SUCCESS] License verified!\n");
-    } else {
-        printf("[ERROR] Invalid license key or HWID mismatch.\n");
-        printf("\nPress ENTER to exit...");
-        getchar(); getchar();
-        FreeConsole();
-        return false;
-    }
-    
-    printf("\n[*] Starting VoidWare in 2 seconds...\n");
-    Sleep(2000);
-    
-    ShowWindow(hConsoleWnd, SW_HIDE);
+    printf("\n[*] Starting VoidWare...\n");
+    Sleep(1000);
     return true;
 }
 
@@ -736,7 +604,7 @@ void HandleHotkeys() {
         if (g_currentTab == 1) g_teamCheck = !g_teamCheck;
     }
     if (GetAsyncKeyState(VK_INSERT) & 1) g_menuOpen = !g_menuOpen;
-    if (GetAsyncKeyState(VK_END) & 1) exit(0);
+    if (GetAsyncKeyState(VK_END) & 1) g_running = false;
     if (GetAsyncKeyState(VK_PRIOR) & 1) { g_gameFOV += 5; if (g_gameFOV > 179) g_gameFOV = 179; }
     if (GetAsyncKeyState(VK_NEXT) & 1) { g_gameFOV -= 5; if (g_gameFOV < 70) g_gameFOV = 70; }
     if ((GetAsyncKeyState(VK_ADD) & 1) || (GetAsyncKeyState(VK_OEM_PLUS) & 1)) { g_thirdPersonDistance += 10; if (g_thirdPersonDistance > 300) g_thirdPersonDistance = 300; }
@@ -791,15 +659,19 @@ void HideThread() {
 void CheatLoop() {
     HideThread();
     
-    while (true) {
+    printf("[DEBUG] Cheat thread started\n");
+    
+    while (g_running) {
         if (!g_hGameWnd) {
             g_hGameWnd = FindWindowA(NULL, "Counter-Strike 2");
             if (g_hGameWnd) {
+                printf("[DEBUG] Found CS2 window\n");
                 g_hDC = GetDC(g_hGameWnd);
                 RECT rect;
                 GetClientRect(g_hGameWnd, &rect);
                 g_screenWidth = rect.right - rect.left;
                 g_screenHeight = rect.bottom - rect.top;
+                printf("[DEBUG] Screen size: %dx%d\n", g_screenWidth, g_screenHeight);
             }
             Sleep(1000);
             continue;
@@ -847,45 +719,128 @@ void CheatLoop() {
         
         Sleep(5);
     }
+    
+    printf("[DEBUG] Cheat thread exiting\n");
 }
 
 // ==================== MAIN ====================
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    if (IsDebuggerPresent()) return 0;
+    // Allocate console FIRST
+    AllocConsole();
+    
+    // Redirect stdout to console
+    FILE* fOut;
+    freopen_s(&fOut, "CONOUT$", "w", stdout);
+    
+    SetConsoleTitleA("VoidWare - Debug Console");
+    
+    printf("============================================\n");
+    printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
+    printf("============================================\n\n");
+    
+    if (IsDebuggerPresent()) {
+        printf("[DEBUG] Debugger detected - running anyway\n");
+    }
+    
     srand((unsigned int)GetTickCount());
     
-    if (!ShowAuthDialog()) return 0;
+    // Auth dialog
+    printf("\n[1] Start Cheat\n");
+    printf("[2] Exit\n");
+    printf("\nSelect option: ");
     
+    int choice;
+    scanf_s("%d", &choice);
+    
+    if (choice != 1) {
+        printf("\nExiting...\n");
+        Sleep(2000);
+        FreeConsole();
+        return 0;
+    }
+    
+    printf("\n[*] Starting VoidWare...\n");
+    
+    // Find CS2 process
+    printf("[*] Looking for CS2 process...\n");
     DWORD pid = GetProcessId(L"cs2.exe");
-    if (!pid) { LaunchCS2(); Sleep(5000); pid = GetProcessId(L"cs2.exe"); }
+    
     if (!pid) { 
-        MessageBoxA(NULL, "CS2 not found. Launch the game and try again.", "VoidWare Error", MB_OK); 
+        printf("[!] CS2 not running. Launching CS2...\n");
+        LaunchCS2(); 
+        Sleep(8000); 
+        pid = GetProcessId(L"cs2.exe");
+    }
+    
+    if (!pid) { 
+        printf("[ERROR] Could not find CS2 process.\n");
+        printf("[ERROR] Make sure CS2 is running.\n");
+        printf("\nPress ENTER to exit...");
+        getchar(); getchar();
+        FreeConsole();
         return 0; 
     }
     
+    printf("[SUCCESS] Found CS2 with PID: %d\n", pid);
+    
+    // Open process
+    printf("[*] Opening CS2 process...\n");
     g_hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    
     if (!g_hProcess) { 
-        MessageBoxA(NULL, "OpenProcess failed. Run as Administrator.", "VoidWare Error", MB_OK); 
+        printf("[ERROR] OpenProcess failed. Error: %d\n", GetLastError());
+        printf("[ERROR] Run this program as Administrator.\n");
+        printf("\nPress ENTER to exit...");
+        getchar(); getchar();
+        FreeConsole();
         return 0; 
     }
     
+    printf("[SUCCESS] Opened process handle\n");
+    
+    // Get client.dll base
+    printf("[*] Finding client.dll...\n");
     g_clientBase = GetModuleBase(pid, L"client.dll");
+    
     if (!g_clientBase) { 
-        MessageBoxA(NULL, "client.dll not found. CS2 may have updated.", "VoidWare Error", MB_OK); 
+        printf("[ERROR] client.dll not found.\n");
+        printf("[ERROR] CS2 may have updated. Offsets need update.\n");
+        printf("\nPress ENTER to exit...");
+        getchar(); getchar();
         CloseHandle(g_hProcess);
+        FreeConsole();
         return 0; 
     }
     
+    printf("[SUCCESS] client.dll base: 0x%llX\n", g_clientBase);
+    
+    // Start cheat thread
+    printf("[*] Starting cheat features...\n");
     std::thread cheatThread(CheatLoop);
     cheatThread.detach();
     
-    MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+    printf("\n============================================\n");
+    printf("  VOIDWARE ACTIVE - Press INSERT for menu\n");
+    printf("  Press END to exit\n");
+    printf("============================================\n\n");
+    
+    // Keep console open for debug
+    while (g_running) {
+        if (GetAsyncKeyState(VK_END) & 1) {
+            g_running = false;
+            break;
+        }
+        Sleep(100);
     }
+    
+    printf("\n[*] Shutting down...\n");
     
     if (g_hDC && g_hGameWnd) ReleaseDC(g_hGameWnd, g_hDC);
     CloseHandle(g_hProcess);
+    
+    printf("[*] Done. Press ENTER to close...\n");
+    getchar();
+    
+    FreeConsole();
     return 0;
 }
