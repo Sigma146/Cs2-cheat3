@@ -1,7 +1,7 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT (DEBUG VERSION)
-// Shows console output and stays open for debugging
-// Compile: cl /EHsc /std:c++17 /MT voidware_debug.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (WORKING INPUT)
+// Fixed: Console input, buffer clearing, proper menu
+// Compile: cl /EHsc /std:c++17 /MT voidware_fixed.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
 #include <Windows.h>
@@ -20,12 +20,6 @@
 #pragma comment(lib, "shell32.lib")
 
 #define CHEAT_VERSION "1.0"
-
-// ==================== KEYAUTH ====================
-#define KEYAUTH_NAME "VoidWare"
-#define KEYAUTH_OWNERID "XfwwmtO8U3"
-#define KEYAUTH_SECRET "45d0249b058e9d0734c00e6f23b2f7c518e4322a658d222166d4e244f4887d85"
-#define KEYAUTH_VERSION "1.0"
 
 // ==================== OFFSETS ====================
 namespace Offsets {
@@ -49,7 +43,7 @@ namespace Offsets {
     constexpr uintptr_t m_aimPunchAngle = 0x2E0;
 }
 
-// ==================== SIMPLE VECTOR3 ====================
+// ==================== VECTOR3 ====================
 struct Vector3 {
     float x, y, z;
 };
@@ -164,26 +158,42 @@ void WriteVec3(uintptr_t address, Vector3 value) {
     }
 }
 
-// ==================== KEYAUTH (SKIPPED FOR DEBUG) ====================
+// ==================== AUTH MENU ====================
 bool ShowAuthDialog() {
-    printf("\n============================================\n");
+    // Clear input buffer
+    fflush(stdin);
+    fflush(stdout);
+    
+    printf("\n");
+    printf("============================================\n");
     printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
-    printf("============================================\n\n");
+    printf("============================================\n");
+    printf("\n");
+    printf("  [1] Start Cheat\n");
+    printf("  [2] Exit\n");
+    printf("\n");
+    printf("  Select option: ");
     
-    printf("[1] Start Cheat (No License Required)\n");
-    printf("[2] Exit\n\n");
-    printf("Select option: ");
+    int choice = 0;
+    char buffer[10];
     
-    int choice;
-    scanf_s("%d", &choice);
+    // Use fgets for reliable input
+    if (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+        choice = atoi(buffer);
+    }
     
-    if (choice != 1) {
-        printf("\nExiting...\n");
-        Sleep(2000);
+    if (choice == 2) {
+        printf("\n  Exiting...\n");
+        Sleep(1000);
         return false;
     }
     
-    printf("\n[*] Starting VoidWare...\n");
+    if (choice != 1) {
+        printf("\n  Invalid option. Starting cheat anyway...\n");
+        Sleep(1500);
+    }
+    
+    printf("\n  [*] Starting VoidWare...\n");
     Sleep(1000);
     return true;
 }
@@ -659,19 +669,15 @@ void HideThread() {
 void CheatLoop() {
     HideThread();
     
-    printf("[DEBUG] Cheat thread started\n");
-    
     while (g_running) {
         if (!g_hGameWnd) {
             g_hGameWnd = FindWindowA(NULL, "Counter-Strike 2");
             if (g_hGameWnd) {
-                printf("[DEBUG] Found CS2 window\n");
                 g_hDC = GetDC(g_hGameWnd);
                 RECT rect;
                 GetClientRect(g_hGameWnd, &rect);
                 g_screenWidth = rect.right - rect.left;
                 g_screenHeight = rect.bottom - rect.top;
-                printf("[DEBUG] Screen size: %dx%d\n", g_screenWidth, g_screenHeight);
             }
             Sleep(1000);
             continue;
@@ -719,49 +725,38 @@ void CheatLoop() {
         
         Sleep(5);
     }
-    
-    printf("[DEBUG] Cheat thread exiting\n");
 }
 
 // ==================== MAIN ====================
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
-    // Allocate console FIRST
+    // Allocate console
     AllocConsole();
     
-    // Redirect stdout to console
+    // Redirect stdout
     FILE* fOut;
     freopen_s(&fOut, "CONOUT$", "w", stdout);
+    setvbuf(stdout, NULL, _IONBF, 0);
     
-    SetConsoleTitleA("VoidWare - Debug Console");
+    SetConsoleTitleA("VoidWare");
     
-    printf("============================================\n");
-    printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
-    printf("============================================\n\n");
+    // Clear console and show menu
+    system("cls");
     
-    if (IsDebuggerPresent()) {
-        printf("[DEBUG] Debugger detected - running anyway\n");
-    }
-    
-    srand((unsigned int)GetTickCount());
-    
-    // Auth dialog
-    printf("\n[1] Start Cheat\n");
-    printf("[2] Exit\n");
-    printf("\nSelect option: ");
-    
-    int choice;
-    scanf_s("%d", &choice);
-    
-    if (choice != 1) {
-        printf("\nExiting...\n");
-        Sleep(2000);
+    if (!ShowAuthDialog()) {
         FreeConsole();
         return 0;
     }
     
-    printf("\n[*] Starting VoidWare...\n");
+    // Clear console again before showing status
+    system("cls");
     
-    // Find CS2 process
+    printf("\n");
+    printf("============================================\n");
+    printf("         VOIDWARE v%s - CS2 CHEAT           \n", CHEAT_VERSION);
+    printf("============================================\n");
+    printf("\n");
+    
+    // Find CS2
     printf("[*] Looking for CS2 process...\n");
     DWORD pid = GetProcessId(L"cs2.exe");
     
@@ -773,40 +768,40 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     }
     
     if (!pid) { 
-        printf("[ERROR] Could not find CS2 process.\n");
+        printf("\n[ERROR] Could not find CS2 process.\n");
         printf("[ERROR] Make sure CS2 is running.\n");
         printf("\nPress ENTER to exit...");
-        getchar(); getchar();
+        getchar();
         FreeConsole();
         return 0; 
     }
     
-    printf("[SUCCESS] Found CS2 with PID: %d\n", pid);
+    printf("[SUCCESS] Found CS2 (PID: %d)\n", pid);
     
     // Open process
     printf("[*] Opening CS2 process...\n");
     g_hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
     
     if (!g_hProcess) { 
-        printf("[ERROR] OpenProcess failed. Error: %d\n", GetLastError());
-        printf("[ERROR] Run this program as Administrator.\n");
+        printf("\n[ERROR] Failed to open process. Error: %d\n", GetLastError());
+        printf("[ERROR] Run this program as Administrator!\n");
         printf("\nPress ENTER to exit...");
-        getchar(); getchar();
+        getchar();
         FreeConsole();
         return 0; 
     }
     
-    printf("[SUCCESS] Opened process handle\n");
+    printf("[SUCCESS] Process opened\n");
     
-    // Get client.dll base
+    // Get client.dll
     printf("[*] Finding client.dll...\n");
     g_clientBase = GetModuleBase(pid, L"client.dll");
     
     if (!g_clientBase) { 
-        printf("[ERROR] client.dll not found.\n");
-        printf("[ERROR] CS2 may have updated. Offsets need update.\n");
+        printf("\n[ERROR] client.dll not found.\n");
+        printf("[ERROR] CS2 may have been updated.\n");
         printf("\nPress ENTER to exit...");
-        getchar(); getchar();
+        getchar();
         CloseHandle(g_hProcess);
         FreeConsole();
         return 0; 
@@ -814,17 +809,18 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nCmdShow) {
     
     printf("[SUCCESS] client.dll base: 0x%llX\n", g_clientBase);
     
-    // Start cheat thread
+    // Start cheat
     printf("[*] Starting cheat features...\n");
     std::thread cheatThread(CheatLoop);
     cheatThread.detach();
     
     printf("\n============================================\n");
-    printf("  VOIDWARE ACTIVE - Press INSERT for menu\n");
-    printf("  Press END to exit\n");
+    printf("  VOIDWARE ACTIVE                           \n");
+    printf("  Press INSERT to open menu                 \n");
+    printf("  Press END to exit                         \n");
     printf("============================================\n\n");
     
-    // Keep console open for debug
+    // Wait for exit
     while (g_running) {
         if (GetAsyncKeyState(VK_END) & 1) {
             g_running = false;
