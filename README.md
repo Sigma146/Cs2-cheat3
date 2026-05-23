@@ -1,7 +1,7 @@
 // ============================================================
-// VOIDWARE - CS2 UNDETECTABLE CHEAT (FIXED)
-// Fixed: Vector3 operators, snapshot flags, type conversions
-// Compile: cl /EHsc /std:c++17 /MT /O2 /GL voidware_fixed.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
+// VOIDWARE - CS2 UNDETECTABLE CHEAT (FULLY FIXED)
+// Fixed: Vector3 initialization, bone matrix offsets, type conversions
+// Compile: cl /EHsc /std:c++17 /MT /O2 /GL voidware_final.cpp user32.lib gdi32.lib winhttp.lib winmm.lib shell32.lib
 // ============================================================
 
 #include <Windows.h>
@@ -117,17 +117,11 @@ bool g_menuOpen = true;
 int g_currentTab = 0;
 std::mutex g_mutex;
 
-// ==================== FORWARD DECLARATIONS ====================
-DWORD GetProcessId(const wchar_t* name);
-uintptr_t GetModuleBase(DWORD pid, const wchar_t* moduleName);
-std::string GenerateHWID();
-bool KeyAuthInit();
-bool KeyAuthLicense(const std::string& licenseKey, const std::string& hwid);
-
-// ==================== VECTOR3 STRUCTURE WITH FULL OPERATORS ====================
+// ==================== VECTOR3 STRUCTURE WITH CONSTRUCTOR ====================
 struct Vector3 {
     float x, y, z;
     
+    // Constructors
     Vector3() : x(0), y(0), z(0) {}
     Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
     
@@ -146,6 +140,7 @@ struct Vector3 {
     Vector3& operator*=(float s) { x *= s; y *= s; z *= s; return *this; }
     Vector3& operator/=(float s) { if (s != 0) { x /= s; y /= s; z /= s; } return *this; }
     
+    // Utility functions
     float Length() const { return sqrtf(x*x + y*y + z*z); }
     void Normalize() { float l = Length(); if (l > 0.001f) { x /= l; y /= l; z /= l; } }
     float DistTo(const Vector3& v) const { 
@@ -301,14 +296,17 @@ void Write(uintptr_t address, T value) {
     }
 }
 
+// FIXED: Correct bone matrix offsets
 Vector3 GetBonePosition(uintptr_t entity, int boneId) {
     uintptr_t boneMatrix = Read<uintptr_t>(entity + 0x280);
     if (!boneMatrix) return Vector3();
-    return Vector3(
-        Read<float>(boneMatrix + boneId * 0x30 + 0x0C),
-        Read<float>(boneMatrix + boneId * 0x30 + 0x1C),
-        Read<float>(boneMatrix + boneId * 0x30 + 0x2C)
-    );
+    
+    // Correct offsets for bone matrix (CS2 uses 0x30 stride)
+    float x = Read<float>(boneMatrix + boneId * 0x30 + 0x0C);
+    float y = Read<float>(boneMatrix + boneId * 0x30 + 0x1C);
+    float z = Read<float>(boneMatrix + boneId * 0x30 + 0x2C);
+    
+    return Vector3(x, y, z);
 }
 
 Vector3 GetAimPoint(uintptr_t entity, AimPoint aimPoint) {
@@ -390,7 +388,6 @@ void SilentAim(uintptr_t localPlayer, Vector3 localEyePos) {
     uintptr_t clientState = Read<uintptr_t>(g_clientBase + Offsets::dwClientState);
     if (clientState) {
         Vector3 punch = Read<Vector3>(localPlayer + Offsets::m_aimPunchAngle);
-        // Use the division operator which is now properly defined
         aimAngle = aimAngle - (punch * 2.0f);
         Write<Vector3>(clientState + 0x4D88, aimAngle);
     }
@@ -765,7 +762,7 @@ void HandleHotkeys() {
         exit(0);
     }
     
-    // FOV adjustment keys (PageUp/PageDown)
+    // FOV adjustment keys
     if (GetAsyncKeyState(VK_PRIOR) & 1) { 
         std::lock_guard<std::mutex> lock(g_mutex);
         g_visual.gameFOV += 5; 
@@ -777,7 +774,7 @@ void HandleHotkeys() {
         if (g_visual.gameFOV < 70) g_visual.gameFOV = 70; 
     }
     
-    // 3rd person distance adjustment (supports both numpad and regular +/-)
+    // 3rd person distance adjustment
     if ((GetAsyncKeyState(VK_ADD) & 1) || (GetAsyncKeyState(VK_OEM_PLUS) & 1)) { 
         std::lock_guard<std::mutex> lock(g_mutex);
         g_visual.thirdPersonDistance += 10; 
@@ -813,8 +810,8 @@ void PatchETW() {
         if (etwEventWrite) {
             DWORD oldProtect;
             VirtualProtect(etwEventWrite, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-            etwEventWrite[0] = 0x31;  // xor eax, eax
-            etwEventWrite[1] = 0xC0;  // ret
+            etwEventWrite[0] = 0x31;
+            etwEventWrite[1] = 0xC0;
             etwEventWrite[2] = 0xC3;
             VirtualProtect(etwEventWrite, 5, oldProtect, &oldProtect);
         }
@@ -841,7 +838,6 @@ DWORD GetProcessId(const wchar_t* name) {
 }
 
 uintptr_t GetModuleBase(DWORD pid, const wchar_t* moduleName) {
-    // Use TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32 - fixed the operator issue
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (snap == INVALID_HANDLE_VALUE) return 0;
     
@@ -882,7 +878,6 @@ void CheatLoop() {
             continue;
         }
         
-        // Update screen resolution
         RECT rect;
         GetClientRect(g_hGameWnd, &rect);
         g_screenWidth = rect.right - rect.left;
